@@ -72,6 +72,8 @@ def upsert_person_card(name: str, date_str: str, context: str) -> None:
         ).fetchone()
         if existing:
             notes = json.loads(existing["notes_json"])
+            if any(n["date"] == date_str for n in notes):
+                return
             notes.append({"date": date_str, "context": context})
             conn.execute(
                 "UPDATE person_cards SET last_seen = ?, notes_json = ? WHERE name = ?",

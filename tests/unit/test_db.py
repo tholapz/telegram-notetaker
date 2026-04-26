@@ -94,3 +94,10 @@ class TestPersonCards:
         all_cards = db.get_all_person_cards()
         carol_cards = [c for c in all_cards if c["name"] == "Carol"]
         assert len(carol_cards) == 1
+
+    def test_upsert_same_date_is_ignored(self):
+        db.upsert_person_card("Dave", "2026-04-26", "first mention")
+        db.upsert_person_card("Dave", "2026-04-26", "second mention same day")
+        notes = json.loads(db.get_person_card("Dave")["notes_json"])
+        assert len(notes) == 1
+        assert notes[0]["context"] == "first mention"

@@ -103,7 +103,7 @@ class TestCompilePersonCards:
             compile_person_cards()
 
         tree_call_args = mock_repo.create_git_tree.call_args[0][0]
-        paths = [b["path"] for b in tree_call_args]
+        paths = [b._identity["path"] for b in tree_call_args]
         assert any("Notes/People/Dave-Smith.md" in p for p in paths)
 
     def test_updates_branch_ref_to_new_commit(self):

@@ -2,7 +2,7 @@ import json
 import logging
 import os
 
-from github import Github
+from github import Github, InputGitTreeElement
 
 from db import get_all_person_cards
 
@@ -43,7 +43,7 @@ def compile_person_cards() -> None:
         safe_name = card["name"].replace(" ", "-")
         path = f"{vault_path}/People/{safe_name}.md"
         blob = repo.create_git_blob(_card_markdown(card), "utf-8")
-        blobs.append({"path": path, "mode": "100644", "type": "blob", "sha": blob.sha})
+        blobs.append(InputGitTreeElement(path=path, mode="100644", type="blob", sha=blob.sha))
 
     new_tree = repo.create_git_tree(blobs, base_tree)
     new_commit = repo.create_git_commit(

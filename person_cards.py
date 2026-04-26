@@ -81,9 +81,9 @@ def compile_person_cards() -> None:
     if not cards:
         return
 
-    branch = os.environ.get("GITHUB_BRANCH", "main")
-    g = Github(os.environ["GITHUB_TOKEN"])
-    repo = g.get_repo(os.environ["GITHUB_REPO"])
+    branch = os.environ.get("GH_BRANCH", "main")
+    g = Github(os.environ["GH_TOKEN"])
+    repo = g.get_repo(os.environ["GH_REPO"])
 
     ref = repo.get_git_ref(f"heads/{branch}")
     parent_commit = repo.get_git_commit(ref.object.sha)

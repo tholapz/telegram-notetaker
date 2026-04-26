@@ -173,8 +173,8 @@ async def compile_daily_note(date_str: str, bot=None) -> None:
         upsert_person_card(name, date_str, context)
 
     # Commit daily note to GitHub
-    branch = os.environ.get("GITHUB_BRANCH", "main")
-    repo = Github(os.environ["GITHUB_TOKEN"]).get_repo(os.environ["GITHUB_REPO"])
+    branch = os.environ.get("GH_BRANCH", "main")
+    repo = Github(os.environ["GH_TOKEN"]).get_repo(os.environ["GH_REPO"])
 
     note_path = date_str + ".md"
     _upsert_github_file(repo, note_path, note_markdown, f"notes: {date_str}")

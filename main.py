@@ -24,9 +24,7 @@ async def main() -> None:
     scheduler = build_scheduler(app.bot)
     scheduler.start()
 
-    github_repo = os.environ.get("GITHUB_REPO", "unknown")
-    vault_path = os.environ.get("GITHUB_VAULT_PATH", "Notes")
-    logger.info("Notes bot active — %s/%s", github_repo, vault_path)
+    logger.info("Notes bot active — %s", os.environ.get("GH_REPO", "unknown"))
 
     async with app:
         await app.start()

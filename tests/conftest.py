@@ -6,10 +6,9 @@ def env_vars(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token:abc")
     monkeypatch.setenv("TELEGRAM_ALLOWED_USER_ID", "12345")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test_anthropic_key")
-    monkeypatch.setenv("GITHUB_TOKEN", "test_github_token")
-    monkeypatch.setenv("GITHUB_REPO", "testuser/testrepo")
-    monkeypatch.setenv("GITHUB_VAULT_PATH", "Notes")
-    monkeypatch.setenv("GITHUB_BRANCH", "main")
+    monkeypatch.setenv("GH_TOKEN", "test_github_token")
+    monkeypatch.setenv("GH_REPO", "testuser/testrepo")
+    monkeypatch.setenv("GH_BRANCH", "main")
     monkeypatch.setenv("TIMEZONE", "Asia/Bangkok")
     monkeypatch.setenv("MODEL", "claude-opus-4-5")
 

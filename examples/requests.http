@@ -1,0 +1,37 @@
+# HTTP request examples for my-service
+# Compatible with VS Code REST Client and JetBrains HTTP Client.
+# Start the server first: make dev
+
+@base = http://localhost:8000
+
+### Health check (liveness probe)
+GET {{base}}/health
+
+### Readiness check (readiness probe)
+GET {{base}}/ready
+
+### List all items
+GET {{base}}/api/v1/items/
+
+### Create an item
+POST {{base}}/api/v1/items/
+Content-Type: application/json
+
+{
+  "name": "Widget",
+  "description": "My first item"
+}
+
+### Create an item (no description)
+POST {{base}}/api/v1/items/
+Content-Type: application/json
+
+{
+  "name": "Bare item"
+}
+
+### Get item by ID (replace 1 with the id returned above)
+GET {{base}}/api/v1/items/1
+
+### Get a non-existent item (expect 404)
+GET {{base}}/api/v1/items/999

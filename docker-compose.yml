@@ -1,0 +1,46 @@
+services:
+  api:
+    build:
+      context: .
+      target: runtime
+    image: my-service:local
+    ports:
+      - "${PORT:-8000}:${PORT:-8000}"
+    volumes:
+      # Hot-reload in dev: mounts local app/ over the image copy.
+      # Remove this volume for a production-like local run.
+      - ./app:/app/app
+    env_file:
+      - .env
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+    command: uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --reload
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-8000}/health')",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Uncomment when you need a database
+  # db:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_USER: app
+  #     POSTGRES_PASSWORD: secret
+  #     POSTGRES_DB: myservice
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+
+# volumes:
+#   postgres_data:

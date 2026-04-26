@@ -1,12 +1,25 @@
-from collections.abc import AsyncGenerator
-
 import pytest
-from httpx import ASGITransport, AsyncClient
 
-from app.main import app
+
+@pytest.fixture(autouse=True)
+def env_vars(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token:abc")
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USER_ID", "12345")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test_anthropic_key")
+    monkeypatch.setenv("GITHUB_TOKEN", "test_github_token")
+    monkeypatch.setenv("GITHUB_REPO", "testuser/testrepo")
+    monkeypatch.setenv("GITHUB_VAULT_PATH", "Notes")
+    monkeypatch.setenv("GITHUB_BRANCH", "main")
+    monkeypatch.setenv("TIMEZONE", "Asia/Bangkok")
+    monkeypatch.setenv("MODEL", "claude-opus-4-5")
 
 
 @pytest.fixture
-async def client() -> AsyncGenerator[AsyncClient, None]:
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as ac:
-        yield ac
+def tmp_db(tmp_path, monkeypatch):
+    """Patch DB_PATH to a temp file and initialise the schema."""
+    import db
+
+    db_file = tmp_path / "test_notes.db"
+    monkeypatch.setattr(db, "DB_PATH", db_file)
+    db.init_db()
+    yield db_file

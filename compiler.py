@@ -25,16 +25,24 @@ listen to/read voice or document content where possible.
 Output ONLY the Markdown content. No preamble, no explanation.\
 """
 
-_FINAL_INSTRUCTION = """\
+def _final_instruction(date_str: str = "") -> str:
+    if date_str:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        date_ymd = date_str
+        date_dmy = dt.strftime("%d-%m-%Y")
+    else:
+        date_ymd = "YYYY-MM-DD"
+        date_dmy = "DD-MM-YYYY"
+    return f"""\
 Based on all the above, produce the daily note using EXACTLY this structure:
 
 ---
-date: YYYY-MM-DD
+date: {date_ymd}
 tags: [<2-5 inferred tags>]
 people: [<all names mentioned>]
 ---
 
-# Daily Note — DD-MM-YYYY
+# Daily Note — {date_dmy}
 
 ## Accomplishments
 <!-- What was completed or meaningfully progressed today -->
@@ -58,8 +66,7 @@ people: [<all names mentioned>]
 <original text or caption>
 <if media: insert markdown reference — image embed for photos, link for others>
 
----\
-"""
+---"""
 
 
 async def resolve_file_uri(bot, file_id: str) -> str:
@@ -68,7 +75,7 @@ async def resolve_file_uri(bot, file_id: str) -> str:
     return f"https://api.telegram.org/file/bot{token}/{tg_file.file_path}"
 
 
-def _build_content_blocks(messages: list[sqlite3.Row], resolved_uris: dict[str, str]) -> list:
+def _build_content_blocks(messages: list[sqlite3.Row], resolved_uris: dict[str, str], date_str: str = "") -> list:
     blocks = []
     for msg in messages:
         hhmm = msg["timestamp"][11:16]
@@ -100,7 +107,7 @@ def _build_content_blocks(messages: list[sqlite3.Row], resolved_uris: dict[str, 
         else:
             blocks.append({"type": "text", "text": f"[Audio/Video: {uri}]"})
 
-    blocks.append({"type": "text", "text": _FINAL_INSTRUCTION})
+    blocks.append({"type": "text", "text": _final_instruction(date_str)})
     return blocks
 
 
@@ -148,7 +155,7 @@ async def compile_daily_note(date_str: str, bot=None) -> None:
                 except Exception as exc:
                     logger.warning("Could not resolve file_id %s: %s", file_id, exc)
 
-    content_blocks = _build_content_blocks(messages, resolved_uris)
+    content_blocks = _build_content_blocks(messages, resolved_uris, date_str)
 
     # Call LLM
     model = os.environ.get("MODEL", "claude-opus-4-5")
@@ -162,18 +169,15 @@ async def compile_daily_note(date_str: str, bot=None) -> None:
     note_markdown = response.content[0].text
 
     # Upsert person cards
-    dt = datetime.strptime(date_str, "%Y-%m-%d")
     for name, context in _parse_people(note_markdown):
         upsert_person_card(name, date_str, context)
 
     # Commit daily note to GitHub
-    vault_path = os.environ.get("GITHUB_VAULT_PATH", "Notes")
     branch = os.environ.get("GITHUB_BRANCH", "main")
     repo = Github(os.environ["GITHUB_TOKEN"]).get_repo(os.environ["GITHUB_REPO"])
 
-    note_filename = dt.strftime("%d-%m-%Y") + ".md"
-    note_path = f"{vault_path}/{dt.year}/{note_filename}"
-    _upsert_github_file(repo, note_path, note_markdown, f"notes: {dt.strftime('%d-%m-%Y')}")
+    note_path = date_str + ".md"
+    _upsert_github_file(repo, note_path, note_markdown, f"notes: {date_str}")
     logger.info("Committed daily note: %s", note_path)
 
     # Regenerate all person card files

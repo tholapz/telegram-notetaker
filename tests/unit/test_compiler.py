@@ -158,7 +158,7 @@ class TestCompileDailyNote:
             mock_client.messages.create.assert_awaited_once()
             mock_repo.create_file.assert_called_once()
             commit_path = mock_repo.create_file.call_args[0][0]
-            assert "2026/26-04-2026.md" in commit_path
+            assert "2026-04-26.md" in commit_path
 
             mock_upsert.assert_called_once_with("Alice", "2026-04-26", "colleague")
             mock_cards.assert_called_once()

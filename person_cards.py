@@ -81,7 +81,6 @@ def compile_person_cards() -> None:
     if not cards:
         return
 
-    vault_path = os.environ.get("GITHUB_VAULT_PATH", "Notes")
     branch = os.environ.get("GITHUB_BRANCH", "main")
     g = Github(os.environ["GITHUB_TOKEN"])
     repo = g.get_repo(os.environ["GITHUB_REPO"])
@@ -93,7 +92,7 @@ def compile_person_cards() -> None:
     blobs = []
     for card in cards:
         safe_name = card["name"].replace(" ", "-")
-        path = f"{vault_path}/People/{safe_name}.md"
+        path = f"People/{safe_name}.md"
 
         # Preserve any user-edited fields from the existing card on GitHub.
         user_fields = None

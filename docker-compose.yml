@@ -1,7 +1,6 @@
 services:
   telegram-notetaker:
-    build: .
-    image: telegram-notetaker:latest
+    image: ghcr.io/tholapz/telegram-notetaker:latest
     restart: always
     env_file: .env
     volumes:

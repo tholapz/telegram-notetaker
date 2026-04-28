@@ -22,8 +22,22 @@ Your task is to produce a structured daily note in Obsidian Markdown format.
 Analyze all content carefully. For media, examine the actual content of the image,
 listen to/read voice or document content where possible.
 
+TIMESTAMPS: If a message begins with an explicit time in brackets like [09:30], use that
+as the event time in the Raw Timeline. Otherwise, use the Telegram message timestamp and
+append "(logged)" to indicate it reflects when the note was captured, not when the event
+occurred.
+
+LINKS: Extract every URL found in all messages for the References section. Infer a short
+descriptive title from surrounding context or the URL path. If no context exists, use the
+domain as the title.
+
+AI CONVERSATIONS: Messages prefixed with #ai-claude, #ai-gpt, or #ai-gemini contain
+excerpts from AI conversations. Preserve the Q&A structure verbatim. Do not summarize
+unless the excerpt exceeds 500 words. Group by tool under AI Conversations.
+
 Output ONLY the Markdown content. No preamble, no explanation.\
 """
+
 
 def _final_instruction(date_str: str = "") -> str:
     if date_str:
@@ -44,6 +58,10 @@ people: [<all names mentioned>]
 
 # Daily Note — {date_dmy}
 
+## Handoff
+<!-- 3-5 bullets: open items, pending decisions, and critical context to resume tomorrow -->
+<bullet list — omit section if nothing is unresolved>
+
 ## Accomplishments
 <!-- What was completed or meaningfully progressed today -->
 <bullet list — omit section if nothing qualifies>
@@ -56,12 +74,20 @@ people: [<all names mentioned>]
 <!-- New knowledge, insights, or realizations from today -->
 <bullet list — omit section if nothing qualifies>
 
+## AI Conversations
+<!-- Conversations with Claude, ChatGPT, or Gemini captured today via #ai-* tags -->
+<grouped by tool, Q&A preserved — omit section if no #ai-* messages found>
+
 ## People
 <!-- For each person mentioned, one line: Name — context of interaction -->
 <list — omit section if no people mentioned>
 
+## References
+<!-- All URLs from today's notes. Format: [title or domain](URL) -->
+<list — omit section if no links found>
+
 ## Raw Timeline
-<!-- Chronological log of all messages, preserving original wording -->
+<!-- Event times where known; append "(logged)" when using Telegram message timestamp -->
 ### HH:MM
 <original text or caption>
 <if media: insert markdown reference — image embed for photos, link for others>

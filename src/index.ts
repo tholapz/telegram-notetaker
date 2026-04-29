@@ -31,21 +31,6 @@ export default {
       return new Response('OK');
     }
 
-    // One-time setup: GET /setup — registers the webhook URL with Telegram
-    if (request.method === 'GET' && url.pathname === '/setup') {
-      const webhookUrl = `${url.origin}/webhook`;
-      const secretToken = env.TELEGRAM_BOT_TOKEN.split(':')[1];
-      const res = await fetch(
-        `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/setWebhook`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: webhookUrl, secret_token: secretToken }),
-        },
-      );
-      return Response.json(await res.json());
-    }
-
     return new Response('Not Found', { status: 404 });
   },
 

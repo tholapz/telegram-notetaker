@@ -1,39 +1,19 @@
-.PHONY: install dev test test-unit test-integration lint format typecheck build up down clean
+.PHONY: install dev deploy typecheck db-init
 
 install:
-	uv pip install -e ".[dev]"
+	npm install
 
 dev:
-	uvicorn app.main:app --reload --port $${PORT:-8000}
+	npx wrangler dev
 
-test:
-	uv run pytest tests/ -v --cov=app --cov-report=term-missing
-
-test-unit:
-	uv run pytest tests/unit/ -v
-
-test-integration:
-	uv run pytest tests/integration/ -v
-
-lint:
-	uv run ruff check . && uv run ruff format --check .
-
-format:
-	uv run ruff format .
+deploy:
+	npx wrangler deploy
 
 typecheck:
-	uv run mypy app/
+	npx tsc --noEmit
 
-build:
-	docker build -t my-service .
-
-up:
-	docker compose up
-
-down:
-	docker compose down
+db-init:
+	npx wrangler d1 execute telegram-notetaker --file=schema.sql
 
 clean:
-	find . -type d -name __pycache__ -exec rm -rf {} +
-	find . -type f -name "*.pyc" -delete
-	rm -rf .pytest_cache .mypy_cache .ruff_cache htmlcov .coverage coverage.xml
+	rm -rf node_modules .wrangler

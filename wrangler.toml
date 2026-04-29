@@ -1,0 +1,17 @@
+name = "telegram-notetaker"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "telegram-notetaker"
+database_id = "e67c7d7c-4b4e-41a0-b450-0d9651ab0569"
+
+[triggers]
+crons = ["55 16 * * *"]
+
+[vars]
+GH_BRANCH = "main"
+TIMEZONE = "Asia/Bangkok"
+MODEL = "claude-opus-4-5"

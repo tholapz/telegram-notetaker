@@ -4,89 +4,24 @@ on:
   push:
     branches: [main]
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
-
 jobs:
-  build-and-push:
-    name: Build & Push Image
+  deploy:
+    name: Deploy to Cloudflare Workers
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
-    outputs:
-      image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+    environment: production
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - uses: actions/setup-node@v4
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          node-version: 20
+          cache: npm
 
-      - name: Build and push image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Install dependencies
+        run: npm ci
 
-  deploy:
-    name: Deploy to VPS
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    environment: production
-
-    steps:
-      - name: Connect to Tailscale
-        uses: tailscale/github-action@v2
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
-
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
+      - name: Deploy
+        run: npx wrangler deploy
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_ALLOWED_USER_ID: ${{ secrets.TELEGRAM_ALLOWED_USER_ID }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-          MODEL: ${{ vars.MODEL }}
-          GH_REPO: ${{ vars.GH_REPO }}
-          GH_BRANCH: ${{ vars.GH_BRANCH }}
-          TIMEZONE: ${{ vars.TIMEZONE }}
-          DEPLOY_IMAGE: ${{ needs.build-and-push.outputs.image }}
-          DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ALLOWED_USER_ID,ANTHROPIC_API_KEY,GH_TOKEN,MODEL,GH_REPO,GH_BRANCH,TIMEZONE,DEPLOY_IMAGE,DEPLOY_PATH
-          script: |
-            cd "$DEPLOY_PATH"
-            printf '%s\n' \
-              "TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN" \
-              "TELEGRAM_ALLOWED_USER_ID=$TELEGRAM_ALLOWED_USER_ID" \
-              "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" \
-              "GH_TOKEN=$GH_TOKEN" \
-              "MODEL=$MODEL" \
-              "GH_REPO=$GH_REPO" \
-              "GH_BRANCH=$GH_BRANCH" \
-              "TIMEZONE=$TIMEZONE" \
-              > .env
-            docker pull "$DEPLOY_IMAGE"
-            docker compose up -d --remove-orphans
-            docker image prune -f
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

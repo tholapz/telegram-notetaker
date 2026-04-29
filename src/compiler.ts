@@ -4,32 +4,14 @@ import { GitHubClient } from './github';
 import { compilePersonCards } from './personCards';
 import type { Env, MessageRow } from './types';
 
-const SYSTEM_PROMPT = `\
-You are a personal knowledge assistant for a solo AI consultant based in Bangkok.
-You receive a day's worth of raw notes — text messages, photos, voice memos, videos,
-and documents — captured informally via Telegram throughout the day.
+function stripFrontmatter(content: string): string {
+  if (!content.startsWith('---')) return content;
+  const end = content.indexOf('\n---', 3);
+  if (end === -1) return content;
+  return content.slice(end + 4).trimStart();
+}
 
-Your task is to produce a structured daily note in Obsidian Markdown format.
-
-Analyze all content carefully. For media, examine the actual content of the image,
-listen to/read voice or document content where possible.
-
-TIMESTAMPS: If a message begins with an explicit time in brackets like [09:30], use that
-as the event time in the Raw Timeline. Otherwise, use the Telegram message timestamp and
-append "(logged)" to indicate it reflects when the note was captured, not when the event
-occurred.
-
-LINKS: Extract every URL found in all messages for the References section. Infer a short
-descriptive title from surrounding context or the URL path. If no context exists, use the
-domain as the title.
-
-AI CONVERSATIONS: Messages prefixed with #ai-claude, #ai-gpt, or #ai-gemini contain
-excerpts from AI conversations. Preserve the Q&A structure verbatim. Do not summarize
-unless the excerpt exceeds 500 words. Group by tool under AI Conversations.
-
-Output ONLY the Markdown content. No preamble, no explanation.`;
-
-function finalInstruction(dateStr: string): string {
+function finalInstruction(template: string, dateStr: string): string {
   let dateYmd: string;
   let dateDmy: string;
   if (dateStr) {
@@ -41,52 +23,9 @@ function finalInstruction(dateStr: string): string {
     dateDmy = 'DD-MM-YYYY';
   }
 
-  return `\
-Based on all the above, produce the daily note using EXACTLY this structure:
-
----
-date: ${dateYmd}
-tags: [<2-5 inferred tags>]
-people: [<all names mentioned>]
----
-
-# Daily Note — ${dateDmy}
-
-## Handoff
-<!-- 3-5 bullets: open items, pending decisions, and critical context to resume tomorrow -->
-<bullet list — omit section if nothing is unresolved>
-
-## Accomplishments
-<!-- What was completed or meaningfully progressed today -->
-<bullet list — omit section if nothing qualifies>
-
-## Challenges
-<!-- Obstacles, blockers, frustrations encountered today -->
-<bullet list — omit section if nothing qualifies>
-
-## Learnings
-<!-- New knowledge, insights, or realizations from today -->
-<bullet list — omit section if nothing qualifies>
-
-## AI Conversations
-<!-- Conversations with Claude, ChatGPT, or Gemini captured today via #ai-* tags -->
-<grouped by tool, Q&A preserved — omit section if no #ai-* messages found>
-
-## People
-<!-- For each person mentioned, one line: Name — context of interaction -->
-<list — omit section if no people mentioned>
-
-## References
-<!-- All URLs from today's notes. Format: [title or domain](URL) -->
-<list — omit section if no links found>
-
-## Raw Timeline
-<!-- Event times where known; append "(logged)" when using Telegram message timestamp -->
-### HH:MM
-<original text or caption>
-<if media: insert markdown reference — image embed for photos, link for others>
-
----`;
+  return template
+    .replace(/\{\{date_ymd\}\}/g, dateYmd)
+    .replace(/\{\{date_dmy\}\}/g, dateDmy);
 }
 
 async function resolveFileUri(token: string, fileId: string): Promise<string> {
@@ -107,6 +46,7 @@ function buildContentBlocks(
   messages: MessageRow[],
   resolvedUris: Map<string, string>,
   dateStr: string,
+  noteTemplate: string,
 ): ContentBlock[] {
   const blocks: ContentBlock[] = [];
 
@@ -136,7 +76,7 @@ function buildContentBlocks(
     }
   }
 
-  blocks.push({ type: 'text', text: finalInstruction(dateStr) });
+  blocks.push({ type: 'text', text: finalInstruction(noteTemplate, dateStr) });
   return blocks;
 }
 
@@ -164,6 +104,18 @@ export async function compileDailyNote(dateStr: string, env: Env): Promise<void>
     return;
   }
 
+  const gh = new GitHubClient(env.GH_TOKEN, env.GH_REPO);
+
+  const [rawSystemPrompt, rawNoteTemplate] = await Promise.all([
+    gh.getFileContent('telegram-compiler-system-prompt.md', env.GH_BRANCH),
+    gh.getFileContent('daily-note-template.md', env.GH_BRANCH),
+  ]);
+  if (!rawSystemPrompt) throw new Error('telegram-compiler-system-prompt.md not found in vault');
+  if (!rawNoteTemplate) throw new Error('daily-note-template.md not found in vault');
+
+  const systemPrompt = stripFrontmatter(rawSystemPrompt);
+  const noteTemplate = stripFrontmatter(rawNoteTemplate);
+
   const resolvedUris = new Map<string, string>();
   for (const msg of messages) {
     if (msg.file_id) {
@@ -175,13 +127,13 @@ export async function compileDailyNote(dateStr: string, env: Env): Promise<void>
     }
   }
 
-  const contentBlocks = buildContentBlocks(messages, resolvedUris, dateStr);
+  const contentBlocks = buildContentBlocks(messages, resolvedUris, dateStr, noteTemplate);
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const response = await client.messages.create({
     model: env.MODEL,
     max_tokens: 4096,
-    system: SYSTEM_PROMPT,
+    system: systemPrompt,
     messages: [
       {
         role: 'user',
@@ -195,7 +147,6 @@ export async function compileDailyNote(dateStr: string, env: Env): Promise<void>
     await upsertPersonCard(env.DB, name, dateStr, context);
   }
 
-  const gh = new GitHubClient(env.GH_TOKEN, env.GH_REPO);
   await gh.upsertFile(`${dateStr}.md`, noteMarkdown, `notes: ${dateStr}`, env.GH_BRANCH);
   console.log(`Committed daily note: ${dateStr}.md`);
 

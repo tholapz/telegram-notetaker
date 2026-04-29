@@ -83,7 +83,7 @@ GET https://<your-worker>.workers.dev/setup
 | `GH_TOKEN` | secret | Fine-grained PAT, Contents read+write on vault repo |
 | `GH_REPO` | secret | `username/repo-name` |
 | `GH_BRANCH` | var | Default: `main` |
-| `MODEL` | var | Default: `claude-opus-4-5` |
+| `MODEL` | var | Default: `claude-sonnet-4-6` |
 | `TIMEZONE` | var | Default: `Asia/Bangkok` |
 
 ## CI/CD

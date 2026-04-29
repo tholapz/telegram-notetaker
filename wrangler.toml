@@ -14,4 +14,9 @@ crons = ["55 16 * * *"]
 [vars]
 GH_BRANCH = "main"
 TIMEZONE = "Asia/Bangkok"
-MODEL = "claude-opus-4-5"
+MODEL = "claude-sonnet-4-6"
+
+[observability]
+[observability.logs]
+enabled = true
+invocation_logs = true

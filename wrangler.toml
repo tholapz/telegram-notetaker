@@ -20,3 +20,9 @@ MODEL = "claude-sonnet-4-6"
 [observability.logs]
 enabled = true
 invocation_logs = true
+
+[[secrets_store_secrets]]
+binding = "TELEGRAM_BOT_TOKEN" #name used to access via env.MY_SECRET
+store_id = "ab3e3d5842394c0d8b4989322447bdd0" #found in Cloudflare dashboard → Secrets Store
+secret_name = "TELEGRAM_BOT_TOKEN"    # the name given when the secret was created
+

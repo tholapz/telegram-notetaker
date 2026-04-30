@@ -98,7 +98,13 @@ Requires `CLOUDFLARE_API_TOKEN` set as a GitHub Actions secret (create at Cloudf
 ```bash
 npx wrangler dev
 # then in another terminal:
-curl "http://localhost:8787/setup"   # register webhook against localhost (for testing)
+curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://your-worker.your-subdomain.workers.dev/webhook",
+    "secret_token": "'"$TELEGRAM_WEBHOOK_SECRET"'",
+    "drop_pending_updates": true
+  }'
 ```
 
 Or trigger the scheduled handler directly:

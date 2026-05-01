@@ -125,4 +125,18 @@ export class GitHubClient {
   async updateRef(branch: string, sha: string): Promise<void> {
     await this.req('PATCH', `/git/refs/heads/${branch}`, { sha });
   }
+
+  async listDirectory(path: string, branch: string): Promise<string[]> {
+    const urlPath = path ? `/contents/${encodeURIComponent(path)}` : '/contents';
+    try {
+      const data = await this.req<Array<{ path: string; type: string }>>(
+        'GET',
+        `${urlPath}?ref=${branch}`,
+      );
+      return data.map((f) => (f.type === 'dir' ? `${f.path}/` : f.path));
+    } catch (e) {
+      if ((e as Error).message.includes('404')) return [];
+      throw e;
+    }
+  }
 }

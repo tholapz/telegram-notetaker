@@ -1,5 +1,6 @@
 export interface Env {
   DB: D1Database;
+  AI: Ai;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_ALLOWED_USER_ID: string;
   ANTHROPIC_API_KEY: string;
@@ -8,6 +9,7 @@ export interface Env {
   GH_BRANCH: string;
   TIMEZONE: string;
   MODEL: string;
+  TAVILY_API_KEY?: string;
 }
 
 export interface TelegramUpdate {

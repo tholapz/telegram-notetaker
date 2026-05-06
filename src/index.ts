@@ -36,20 +36,25 @@ export default {
 
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     const dateStr = getLocalDate(env.TIMEZONE);
+    const notify = (text: string) => alertUser(env, text);
     ctx.waitUntil(
       (async () => {
         let lastError: unknown;
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
-            await compileDailyNote(dateStr, env);
+            await compileDailyNote(dateStr, env, notify);
             return;
           } catch (e) {
             lastError = e;
             console.error(`Compilation attempt ${attempt + 1} failed: ${e}`);
+            await alertUser(
+              env,
+              `⚠️ Attempt ${attempt + 1}/3 failed: ${(e as Error).message ?? e}`,
+            );
             if (attempt < 2) await new Promise((r) => setTimeout(r, 60_000));
           }
         }
-        await alertUser(env, `⚠️ Daily note compilation failed: ${lastError}`);
+        await alertUser(env, `❌ Daily note compilation failed after 3 attempts: ${(lastError as Error).message ?? lastError}`);
       })(),
     );
   },

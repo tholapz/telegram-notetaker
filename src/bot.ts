@@ -1,3 +1,4 @@
+import { compileDailyNote } from './compiler';
 import { saveMessage } from './db';
 import type { Env, TelegramUpdate } from './types';
 
@@ -25,7 +26,33 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
   const { date, timestamp } = getLocalDatetime(env.TIMEZONE);
 
   if (msg.text?.startsWith('/start') || msg.text?.startsWith('/help')) {
-    await sendMessage(env.TELEGRAM_BOT_TOKEN, msg.from.id, 'Bot active.');
+    await sendMessage(
+      env.TELEGRAM_BOT_TOKEN,
+      msg.from.id,
+      'Bot active.\n\nCommands:\n/compile — compile today\'s daily note\n/compile YYYY-MM-DD — compile note for a specific date',
+    );
+    return;
+  }
+
+  if (msg.text?.startsWith('/compile')) {
+    const parts = msg.text.trim().split(/\s+/);
+    const dateArg = parts[1];
+    const targetDate = dateArg ?? date;
+    const chatId = msg.from.id;
+
+    if (dateArg && !/^\d{4}-\d{2}-\d{2}$/.test(dateArg)) {
+      await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, '❌ Invalid date format. Use: /compile YYYY-MM-DD');
+      return;
+    }
+
+    const notify = (text: string) => sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, text);
+    await notify(`🔄 Starting compilation for ${targetDate}...`);
+
+    try {
+      await compileDailyNote(targetDate, env, notify);
+    } catch (e) {
+      await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `❌ Compilation failed: ${(e as Error).message ?? e}`);
+    }
     return;
   }
 

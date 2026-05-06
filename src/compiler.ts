@@ -300,12 +300,19 @@ async function runAgenticCompiler(
   throw new Error(`Agentic compiler exceeded ${MAX_TURNS} turns`);
 }
 
-export async function compileDailyNote(dateStr: string, env: Env): Promise<void> {
+export async function compileDailyNote(
+  dateStr: string,
+  env: Env,
+  notify: (msg: string) => Promise<void> = async () => {},
+): Promise<void> {
   const messages = await getMessagesForDate(env.DB, dateStr);
   if (messages.length === 0) {
     console.log(`No messages for ${dateStr}, skipping.`);
+    await notify(`ℹ️ No messages for ${dateStr}, skipping.`);
     return;
   }
+
+  await notify(`🔄 Compiling daily note for ${dateStr} (${messages.length} messages)...`);
 
   const gh = new GitHubClient(env.GH_TOKEN, env.GH_REPO);
 
@@ -319,18 +326,43 @@ export async function compileDailyNote(dateStr: string, env: Env): Promise<void>
   const systemPrompt = stripFrontmatter(rawSystemPrompt);
   const noteTemplate = stripFrontmatter(rawNoteTemplate);
 
+  const mediaMessages = messages.filter((m) => m.file_id);
+  if (mediaMessages.length > 0) {
+    await notify(`📎 Resolving ${mediaMessages.length} media file(s)...`);
+  }
+
   const resolvedUris = new Map<string, string>();
+  const resolveFailures: string[] = [];
   for (const msg of messages) {
     if (msg.file_id) {
       try {
         resolvedUris.set(msg.file_id, await resolveFileUri(env.TELEGRAM_BOT_TOKEN, msg.file_id));
       } catch (e) {
+        const errMsg = (e as Error).message;
         console.warn(`Could not resolve file_id ${msg.file_id}: ${e}`);
+        resolveFailures.push(`${msg.message_type} (${msg.file_id.slice(0, 12)}…): ${errMsg}`);
       }
     }
   }
 
+  if (resolveFailures.length > 0) {
+    await notify(
+      `⚠️ ${resolveFailures.length} media file(s) failed to resolve:\n${resolveFailures.map((f) => `• ${f}`).join('\n')}`,
+    );
+  }
+
+  const audioMessages = messages.filter(
+    (m) =>
+      m.file_id &&
+      (m.message_type === 'voice' || m.message_type === 'audio') &&
+      resolvedUris.has(m.file_id),
+  );
+
   const transcriptions = new Map<string, string>();
+  if (audioMessages.length > 0) {
+    await notify(`🎙️ Transcribing ${audioMessages.length} audio message(s)...`);
+  }
+
   for (const msg of messages) {
     if (!msg.file_id) continue;
     if (msg.message_type !== 'voice' && msg.message_type !== 'audio') continue;
@@ -343,6 +375,8 @@ export async function compileDailyNote(dateStr: string, env: Env): Promise<void>
     }
   }
 
+  await notify(`🤖 Running AI compiler...`);
+
   const contentBlocks = buildContentBlocks(messages, resolvedUris, transcriptions, dateStr, noteTemplate);
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
 
@@ -353,6 +387,8 @@ export async function compileDailyNote(dateStr: string, env: Env): Promise<void>
     systemPrompt,
     contentBlocks as Anthropic.ContentBlockParam[],
   );
+
+  await notify(`📝 AI done. Committing to GitHub...`);
 
   for (const [name, context] of parsePeople(noteMarkdown)) {
     await upsertPersonCard(env.DB, name, dateStr, context);
@@ -376,10 +412,14 @@ export async function compileDailyNote(dateStr: string, env: Env): Promise<void>
   const newTreeSha = await gh.createTree(blobs, treeSha);
   const newCommitSha = await gh.createCommit(`notes: ${dateStr}`, newTreeSha, commitSha);
   await gh.updateRef(env.GH_BRANCH, newCommitSha);
+
+  const extraFiles = pendingWrites.size > 0 ? ` + ${pendingWrites.size} vault file(s)` : '';
   console.log(`Committed daily note + ${pendingWrites.size} vault file(s): ${dateStr}`);
 
   await compilePersonCards(env);
 
   await deleteMessagesForDate(env.DB, dateStr);
   console.log(`Deleted messages for ${dateStr} from D1.`);
+
+  await notify(`✅ Done! Committed ${dateStr}.md${extraFiles} to GitHub.`);
 }

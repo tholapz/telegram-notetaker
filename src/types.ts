@@ -14,6 +14,19 @@ export interface Env {
   TAVILY_API_KEY?: string;
 }
 
+export interface CompileJobRow {
+  batch_id: string;
+  date: string;
+  chat_id: string;
+  turn: number;
+  messages_json: string;
+  system_prompt: string;
+  pending_writes_json: string;
+  started_at: string;
+  input_tokens: number;
+  output_tokens: number;
+}
+
 export interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;

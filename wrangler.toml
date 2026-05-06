@@ -16,7 +16,7 @@ bucket_name = "obsidian-vault"
 binding = "AI"
 
 [triggers]
-crons = ["55 16 * * *"]
+crons = ["55 16 * * *", "*/5 * * * *"]
 
 [vars]
 GH_BRANCH = "main"

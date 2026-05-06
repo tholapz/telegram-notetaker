@@ -1,6 +1,7 @@
 import { handleUpdate } from './bot';
-import { CompilationCancelledError, compileDailyNote } from './compiler';
-import { deleteMeta, getActiveLock, setMeta } from './db';
+import { pollPendingJobs, submitBatchTurn } from './batch';
+import { getActiveCompileJob } from './db';
+import { prepareCompile } from './compiler';
 import type { Env, TelegramUpdate } from './types';
 
 function getLocalDate(timezone: string): string {
@@ -19,14 +20,10 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    // Telegram webhook: POST /webhook
     if (request.method === 'POST' && url.pathname === '/webhook') {
       const secret = request.headers.get('X-Telegram-Bot-Api-Secret-Token');
-      // Secret is the part after the colon in the bot token (e.g. "ABC123..." from "12345:ABC123...")
       const expectedSecret = env.TELEGRAM_BOT_TOKEN.split(':')[1];
-      if (secret !== expectedSecret) {
-        return new Response('Unauthorized', { status: 401 });
-      }
+      if (secret !== expectedSecret) return new Response('Unauthorized', { status: 401 });
       const update = (await request.json()) as TelegramUpdate;
       await handleUpdate(update, env, ctx);
       return new Response('OK');
@@ -35,35 +32,46 @@ export default {
     return new Response('Not Found', { status: 404 });
   },
 
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    // Polling cron (*/5 * * * *): check if any pending batch has finished.
+    if (event.cron !== '55 16 * * *') {
+      ctx.waitUntil(pollPendingJobs(env));
+      return;
+    }
+
+    // Daily compile cron (55 16 * * *).
     const dateStr = getLocalDate(env.TIMEZONE);
     const notify = (text: string) => alertUser(env, text);
+
+    const activeJob = await getActiveCompileJob(env.DB);
+    if (activeJob) {
+      await alertUser(env, `⏳ Compilation already in progress for ${activeJob.date} (batch: ${activeJob.batch_id}).`);
+      return;
+    }
+
     ctx.waitUntil(
       (async () => {
-        // Clear any stale lock from a previously killed invocation before acquiring a fresh one
-        await getActiveLock(env.DB);
-        await setMeta(env.DB, 'compile_running', new Date().toISOString());
         try {
-          let lastError: unknown;
-          for (let attempt = 0; attempt < 3; attempt++) {
-            try {
-              await compileDailyNote(dateStr, env, notify);
-              return;
-            } catch (e) {
-              if (e instanceof CompilationCancelledError) {
-                await alertUser(env, '🛑 Daily note compilation was stopped.');
-                return;
-              }
-              lastError = e;
-              console.error(`Compilation attempt ${attempt + 1} failed: ${e}`);
-              await alertUser(env, `⚠️ Attempt ${attempt + 1}/3 failed: ${(e as Error).message ?? e}`);
-              if (attempt < 2) await new Promise((r) => setTimeout(r, 60_000));
-            }
-          }
-          await alertUser(env, `❌ Daily note compilation failed after 3 attempts: ${(lastError as Error).message ?? lastError}`);
-        } finally {
-          await deleteMeta(env.DB, 'compile_running');
-          await deleteMeta(env.DB, 'compile_cancel');
+          const context = await prepareCompile(dateStr, env, notify);
+          if (!context) return;
+          const batchId = await submitBatchTurn(
+            context.initialMessages,
+            context.systemPrompt,
+            context.tools,
+            {
+              date: dateStr,
+              chatId: env.TELEGRAM_ALLOWED_USER_ID,
+              turn: 0,
+              pendingWrites: new Map(),
+              startedAt: new Date().toISOString(),
+              inputTokens: 0,
+              outputTokens: 0,
+            },
+            env,
+          );
+          await alertUser(env, `🤖 Daily note compilation queued for ${dateStr}.\nBatch: ${batchId}`);
+        } catch (e) {
+          await alertUser(env, `❌ Compilation failed to start: ${(e as Error).message ?? e}`);
         }
       })(),
     );

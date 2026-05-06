@@ -1,4 +1,4 @@
-import type { MessageRow, PersonCardRow } from './types';
+import type { CompileJobRow, MessageRow, PersonCardRow } from './types';
 
 export async function getMeta(db: D1Database, key: string): Promise<string | null> {
   const row = await db
@@ -108,4 +108,40 @@ export async function upsertPersonCard(
 export async function getAllPersonCards(db: D1Database): Promise<PersonCardRow[]> {
   const result = await db.prepare('SELECT * FROM person_cards').all<PersonCardRow>();
   return result.results;
+}
+
+const COMPILE_JOB_TTL_MS = 24 * 60 * 60 * 1000; // 24h — Anthropic batch max TTL
+
+export async function saveCompileJob(db: D1Database, job: CompileJobRow): Promise<void> {
+  await db
+    .prepare(
+      `INSERT OR REPLACE INTO compile_jobs
+        (batch_id, date, chat_id, turn, messages_json, system_prompt, pending_writes_json, started_at, input_tokens, output_tokens)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      job.batch_id, job.date, job.chat_id, job.turn,
+      job.messages_json, job.system_prompt, job.pending_writes_json,
+      job.started_at, job.input_tokens, job.output_tokens,
+    )
+    .run();
+}
+
+export async function getCompileJob(db: D1Database, batchId: string): Promise<CompileJobRow | null> {
+  return db.prepare('SELECT * FROM compile_jobs WHERE batch_id = ?').bind(batchId).first<CompileJobRow>();
+}
+
+export async function deleteCompileJob(db: D1Database, batchId: string): Promise<void> {
+  await db.prepare('DELETE FROM compile_jobs WHERE batch_id = ?').bind(batchId).run();
+}
+
+// Returns the active job, auto-deleting any that exceeded the 24h Anthropic batch TTL.
+export async function getActiveCompileJob(db: D1Database): Promise<CompileJobRow | null> {
+  const job = await db.prepare('SELECT * FROM compile_jobs LIMIT 1').first<CompileJobRow>();
+  if (!job) return null;
+  if (Date.now() - new Date(job.started_at).getTime() > COMPILE_JOB_TTL_MS) {
+    await db.prepare('DELETE FROM compile_jobs WHERE batch_id = ?').bind(job.batch_id).run();
+    return null;
+  }
+  return job;
 }

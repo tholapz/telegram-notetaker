@@ -1,20 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { deleteMessagesForDate, getMeta, getMessagesForDate, upsertPersonCard } from './db';
+import { deleteMessagesForDate, getMessagesForDate, upsertPersonCard } from './db';
 import { GitHubClient } from './github';
 import { compilePersonCards } from './personCards';
 import type { Env, MessageRow } from './types';
 
-export class CompilationCancelledError extends Error {
-  constructor() {
-    super('Compilation cancelled by user');
-    this.name = 'CompilationCancelledError';
-  }
-}
-
-async function checkCancelled(env: Env): Promise<void> {
-  const flag = await getMeta(env.DB, 'compile_cancel');
-  if (flag === '1') throw new CompilationCancelledError();
-}
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function stripFrontmatter(content: string): string {
   if (!content.startsWith('---')) return content;
@@ -24,29 +14,10 @@ function stripFrontmatter(content: string): string {
 }
 
 function finalInstruction(template: string, dateStr: string): string {
-  let dateYmd: string;
-  let dateDmy: string;
-  if (dateStr) {
-    const dt = new Date(dateStr + 'T00:00:00');
-    dateYmd = dateStr;
-    dateDmy = `${String(dt.getDate()).padStart(2, '0')}-${String(dt.getMonth() + 1).padStart(2, '0')}-${dt.getFullYear()}`;
-  } else {
-    dateYmd = 'YYYY-MM-DD';
-    dateDmy = 'DD-MM-YYYY';
-  }
-
-  return template
-    .replace(/\{\{date_ymd\}\}/g, dateYmd)
-    .replace(/\{\{date_dmy\}\}/g, dateDmy);
-}
-
-async function resolveFileUri(token: string, fileId: string): Promise<string> {
-  const res = await fetch(
-    `https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`,
-  );
-  if (!res.ok) throw new Error(`Telegram getFile ${fileId} → ${res.status}`);
-  const data = (await res.json()) as { result: { file_path: string } };
-  return `https://api.telegram.org/file/bot${token}/${data.result.file_path}`;
+  const dt = new Date(dateStr + 'T00:00:00');
+  const dateYmd = dateStr;
+  const dateDmy = `${String(dt.getDate()).padStart(2, '0')}-${String(dt.getMonth() + 1).padStart(2, '0')}-${dt.getFullYear()}`;
+  return template.replace(/\{\{date_ymd\}\}/g, dateYmd).replace(/\{\{date_dmy\}\}/g, dateDmy);
 }
 
 type MediaContent =
@@ -56,9 +27,7 @@ type MediaContent =
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
 }
 
@@ -120,18 +89,12 @@ function buildContentBlocks(
           source: { type: 'base64', media_type: 'application/pdf', data: arrayBufferToBase64(media.buffer) },
         });
       } else {
-        blocks.push({
-          type: 'document',
-          source: { type: 'url', url: media.url, media_type: 'application/pdf' },
-        });
+        blocks.push({ type: 'document', source: { type: 'url', url: media.url, media_type: 'application/pdf' } });
       }
     } else {
       const transcription = transcriptions.get(msg.file_id);
       const fallbackRef = media.kind === 'url' ? `[Audio/Video: ${media.url}]` : '[Audio/Video]';
-      blocks.push({
-        type: 'text',
-        text: transcription ? `[Voice/Audio transcription]: ${transcription}` : fallbackRef,
-      });
+      blocks.push({ type: 'text', text: transcription ? `[Voice/Audio transcription]: ${transcription}` : fallbackRef });
     }
   }
 
@@ -143,10 +106,7 @@ function parsePeople(markdown: string): Array<[string, string]> {
   const people: Array<[string, string]> = [];
   let inSection = false;
   for (const line of markdown.split('\n')) {
-    if (line.trim() === '## People') {
-      inSection = true;
-      continue;
-    }
+    if (line.trim() === '## People') { inSection = true; continue; }
     if (inSection) {
       if (line.startsWith('## ')) break;
       const m = line.trim().match(/^[-*]\s+(.+?)\s+[—–-]+\s+(.+)$/);
@@ -156,7 +116,9 @@ function parsePeople(markdown: string): Array<[string, string]> {
   return people;
 }
 
-const VAULT_TOOLS: Anthropic.Tool[] = [
+// ── Exported tools (used by batch.ts for tool execution) ──────────────────────
+
+export const VAULT_TOOLS: Anthropic.Tool[] = [
   {
     name: 'list_vault_files',
     description:
@@ -166,8 +128,7 @@ const VAULT_TOOLS: Anthropic.Tool[] = [
       properties: {
         path: {
           type: 'string',
-          description:
-            'Directory path in the vault (e.g. "People", "Recipes", "Projects"). Pass empty string for root.',
+          description: 'Directory path in the vault (e.g. "People", "Recipes", "Projects"). Pass empty string for root.',
         },
       },
       required: ['path'],
@@ -179,11 +140,7 @@ const VAULT_TOOLS: Anthropic.Tool[] = [
     input_schema: {
       type: 'object',
       properties: {
-        path: {
-          type: 'string',
-          description:
-            'File path in the vault (e.g. "People/John-Doe.md", "Recipes/Pad-Thai.md").',
-        },
+        path: { type: 'string', description: 'File path in the vault (e.g. "People/John-Doe.md").' },
       },
       required: ['path'],
     },
@@ -191,198 +148,86 @@ const VAULT_TOOLS: Anthropic.Tool[] = [
   {
     name: 'write_vault_file',
     description:
-      'Create or update a file in the Obsidian vault. Use for recipe cards, project notes, resource references, research summaries, etc. Do NOT write to the People/ directory — person cards are managed separately.',
+      'Create or update a file in the Obsidian vault. Do NOT write to the People/ directory — person cards are managed separately.',
     input_schema: {
       type: 'object',
       properties: {
-        path: {
-          type: 'string',
-          description:
-            'File path to write (e.g. "Recipes/Pad-Thai.md", "Projects/Website.md"). Must not start with People/.',
-        },
-        content: {
-          type: 'string',
-          description: 'Full markdown content to write to the file.',
-        },
+        path: { type: 'string', description: 'File path to write (e.g. "Recipes/Pad-Thai.md"). Must not start with People/.' },
+        content: { type: 'string', description: 'Full markdown content to write to the file.' },
       },
       required: ['path', 'content'],
     },
   },
 ];
 
-const WEB_SEARCH_TOOL: Anthropic.Tool = {
+export const WEB_SEARCH_TOOL: Anthropic.Tool = {
   name: 'web_search',
   description:
-    'Search the internet for current information. Use this to verify claims in notes, check product availability, find alternatives, look up current prices, research topics mentioned, or surface relevant context.',
+    'Search the internet for current information. Use to verify claims, check availability, look up prices, research topics.',
   input_schema: {
     type: 'object',
-    properties: {
-      query: {
-        type: 'string',
-        description: 'The search query. Be specific for better results.',
-      },
-    },
+    properties: { query: { type: 'string', description: 'The search query.' } },
     required: ['query'],
   },
 };
 
-function isAllowedWritePath(path: string): boolean {
+export function isAllowedWritePath(path: string): boolean {
   const normalized = path.replace(/\\/g, '/').replace(/^\/+/, '');
   if (normalized.includes('..')) return false;
   if (normalized.startsWith('People/') || normalized === 'People') return false;
   return true;
 }
 
-async function searchWeb(query: string, tavilyKey: string): Promise<string> {
+export async function searchWeb(query: string, tavilyKey: string): Promise<string> {
   const res = await fetch('https://api.tavily.com/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      api_key: tavilyKey,
-      query,
-      search_depth: 'basic',
-      include_answer: true,
-      max_results: 5,
-    }),
+    body: JSON.stringify({ api_key: tavilyKey, query, search_depth: 'basic', include_answer: true, max_results: 5 }),
   });
   if (!res.ok) throw new Error(`Tavily search failed: ${res.status}`);
   const data = (await res.json()) as {
     answer?: string;
     results: Array<{ title: string; url: string; content: string }>;
   };
-
   const parts: string[] = [];
   if (data.answer) parts.push(`Summary: ${data.answer}`);
-  for (const r of data.results) {
-    parts.push(`**${r.title}**\n${r.url}\n${r.content}`);
-  }
+  for (const r of data.results) parts.push(`**${r.title}**\n${r.url}\n${r.content}`);
   return parts.join('\n\n---\n\n') || 'No results found.';
 }
 
-function stripUrlBlocks(content: Anthropic.ContentBlockParam[]): Anthropic.ContentBlockParam[] {
-  return content.map((block): Anthropic.ContentBlockParam => {
-    if (block.type === 'image' || block.type === 'document') {
-      return { type: 'text', text: '[Media unavailable: blocked by server]' };
-    }
-    return block;
-  });
+// ── Public interface ──────────────────────────────────────────────────────────
+
+export interface CompileContext {
+  date: string;
+  messageCount: number;
+  systemPrompt: string;
+  tools: Anthropic.Tool[];
+  initialMessages: Anthropic.MessageParam[];
 }
 
-async function runAgenticCompiler(
-  client: Anthropic,
-  gh: GitHubClient,
-  env: Env,
-  systemPrompt: string,
-  initialContent: Anthropic.ContentBlockParam[],
-  notify: (msg: string) => Promise<void> = async () => {},
-): Promise<{ noteMarkdown: string; pendingWrites: Map<string, string> }> {
-  const tools: Anthropic.Tool[] = [
-    ...VAULT_TOOLS,
-    ...(env.TAVILY_API_KEY ? [WEB_SEARCH_TOOL] : []),
-  ];
-  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: initialContent }];
-  const pendingWrites = new Map<string, string>();
-  const MAX_TURNS = 10;
-
-  for (let turn = 0; turn < MAX_TURNS; turn++) {
-    await checkCancelled(env);
-    let response: Anthropic.Message;
-    try {
-      response = await client.messages.create({
-        model: env.MODEL,
-        max_tokens: 8192,
-        system: systemPrompt,
-        tools,
-        messages,
-      });
-    } catch (e) {
-      const errMsg = (e as Error).message ?? '';
-      if (errMsg.includes('robots.txt')) {
-        console.warn(`Anthropic URL fetch blocked by robots.txt, retrying without media blocks`);
-        await notify('⚠️ Some media URLs were blocked by the server (robots.txt). Retrying without media...');
-        messages[0] = { role: 'user', content: stripUrlBlocks(initialContent) };
-        response = await client.messages.create({
-          model: env.MODEL,
-          max_tokens: 8192,
-          system: systemPrompt,
-          tools,
-          messages,
-        });
-      } else {
-        throw e;
-      }
-    }
-
-    const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
-
-    if (response.stop_reason === 'end_turn') {
-      return { noteMarkdown: textBlock?.text ?? '', pendingWrites };
-    }
-
-    if (response.stop_reason !== 'tool_use') {
-      return { noteMarkdown: textBlock?.text ?? '', pendingWrites };
-    }
-
-    messages.push({ role: 'assistant', content: response.content });
-
-    const toolResults: Anthropic.ToolResultBlockParam[] = [];
-    for (const block of response.content) {
-      if (block.type !== 'tool_use') continue;
-
-      let result: string;
-      try {
-        if (block.name === 'list_vault_files') {
-          const { path } = block.input as { path: string };
-          const files = await gh.listDirectory(path, env.GH_BRANCH);
-          result = JSON.stringify(files);
-        } else if (block.name === 'read_vault_file') {
-          const { path } = block.input as { path: string };
-          const content = await gh.getFileContent(path, env.GH_BRANCH);
-          result = content ?? `File not found: ${path}`;
-        } else if (block.name === 'write_vault_file') {
-          const { path, content } = block.input as { path: string; content: string };
-          if (!isAllowedWritePath(path)) {
-            result = `Error: writes to "${path}" are not allowed. People/ is managed separately.`;
-          } else {
-            pendingWrites.set(path, content);
-            result = `Queued: ${path}`;
-          }
-        } else if (block.name === 'web_search') {
-          const { query } = block.input as { query: string };
-          result = await searchWeb(query, env.TAVILY_API_KEY!);
-        } else {
-          result = `Unknown tool: ${block.name}`;
-        }
-      } catch (e) {
-        result = `Tool error: ${(e as Error).message}`;
-        console.warn(`Vault tool "${block.name}" failed:`, e);
-      }
-
-      toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
-    }
-
-    messages.push({ role: 'user', content: toolResults });
-  }
-
-  throw new Error(`Agentic compiler exceeded ${MAX_TURNS} turns`);
+export interface CompileStats {
+  turns: number;
+  inputTokens: number;
+  outputTokens: number;
+  startedAt: string;
 }
 
-export async function compileDailyNote(
+// Fetches messages, resolves media, transcribes audio, and builds the first
+// user turn for the batch. Returns null if there are no messages for the date.
+export async function prepareCompile(
   dateStr: string,
   env: Env,
-  notify: (msg: string) => Promise<void> = async () => {},
-): Promise<void> {
+  notify: (msg: string) => Promise<void>,
+): Promise<CompileContext | null> {
   const messages = await getMessagesForDate(env.DB, dateStr);
   if (messages.length === 0) {
-    console.log(`No messages for ${dateStr}, skipping.`);
     await notify(`ℹ️ No messages for ${dateStr}, skipping.`);
-    return;
+    return null;
   }
 
-  await notify(`🔄 Compiling daily note for ${dateStr} (${messages.length} messages)...`);
+  await notify(`🔄 Preparing compilation for ${dateStr} (${messages.length} messages)...`);
 
   const gh = new GitHubClient(env.GH_TOKEN, env.GH_REPO);
-
   const [rawSystemPrompt, rawNoteTemplate] = await Promise.all([
     gh.getFileContent('telegram-compiler-system-prompt.md', env.GH_BRANCH),
     gh.getFileContent('daily-note-template.md', env.GH_BRANCH),
@@ -406,106 +251,69 @@ export async function compileDailyNote(
 
   const s3Base = env.S3_API.replace(/\/$/, '');
   const resolvedMedia = new Map<string, MediaContent>();
-  const resolveFailures: string[] = [];
 
   for (const msg of messages) {
-    if (!msg.file_id) continue;
-
-    // Prefer R2: fetch bytes directly, no public URL needed
-    if (msg.r2_url) {
-      try {
-        const key = msg.r2_url.startsWith(s3Base + '/')
-          ? msg.r2_url.slice(s3Base.length + 1)
-          : msg.r2_url;
-        const obj = await env.R2.get(key);
-        if (!obj) throw new Error('Object not found in R2');
-        const buffer = await obj.arrayBuffer();
-        resolvedMedia.set(msg.file_id, {
-          kind: 'bytes',
-          buffer,
-          mimeType: msg.file_mime_type ?? 'application/octet-stream',
-        });
-        continue;
-      } catch (e) {
-        console.warn(`R2 fetch failed for ${msg.r2_url}: ${e} — falling back to Telegram`);
-      }
-    }
-
-    // Fallback: resolve via Telegram getFile API
+    if (!msg.file_id || !msg.r2_url) continue;
     try {
-      const url = await resolveFileUri(env.TELEGRAM_BOT_TOKEN, msg.file_id);
-      resolvedMedia.set(msg.file_id, { kind: 'url', url });
+      const key = msg.r2_url.startsWith(s3Base + '/')
+        ? msg.r2_url.slice(s3Base.length + 1)
+        : msg.r2_url;
+      const obj = await env.R2.get(key);
+      if (!obj) throw new Error('Object not found in R2');
+      resolvedMedia.set(msg.file_id, {
+        kind: 'bytes',
+        buffer: await obj.arrayBuffer(),
+        mimeType: msg.file_mime_type ?? 'application/octet-stream',
+      });
     } catch (e) {
-      const errMsg = (e as Error).message;
-      console.warn(`Could not resolve file_id ${msg.file_id}: ${e}`);
-      resolveFailures.push(`${msg.message_type} (${msg.file_id.slice(0, 12)}…): ${errMsg}`);
+      console.warn(`R2 fetch failed for ${msg.r2_url}: ${e}`);
     }
   }
-
-  if (resolveFailures.length > 0) {
-    await notify(
-      `⚠️ ${resolveFailures.length} media file(s) failed to resolve:\n${resolveFailures.map((f) => `• ${f}`).join('\n')}`,
-    );
-  }
-
-  await checkCancelled(env);
 
   const audioMessages = messages.filter(
-    (m) =>
-      m.file_id &&
-      (m.message_type === 'voice' || m.message_type === 'audio') &&
-      resolvedMedia.has(m.file_id),
+    (m) => m.file_id && (m.message_type === 'voice' || m.message_type === 'audio') && resolvedMedia.has(m.file_id),
   );
-
   const transcriptions = new Map<string, string>();
   if (audioMessages.length > 0) {
     await notify(`🎙️ Transcribing ${audioMessages.length} audio message(s)...`);
-  }
-
-  for (const msg of messages) {
-    if (!msg.file_id) continue;
-    if (msg.message_type !== 'voice' && msg.message_type !== 'audio') continue;
-    const media = resolvedMedia.get(msg.file_id);
-    if (!media) continue;
-
-    let buffer: ArrayBuffer;
-    if (media.kind === 'bytes') {
-      buffer = media.buffer;
-    } else {
-      const res = await fetch(media.url);
-      if (!res.ok) continue;
-      buffer = await res.arrayBuffer();
-    }
-
-    const text = await transcribeAudio(env, buffer);
-    if (text) {
-      transcriptions.set(msg.file_id, text);
-      console.log(`Transcribed ${msg.message_type} (${msg.file_id.slice(0, 8)}…): ${text.slice(0, 60)}`);
+    for (const msg of audioMessages) {
+      const media = resolvedMedia.get(msg.file_id!)!;
+      const buffer = media.kind === 'bytes' ? media.buffer : await (await fetch(media.url)).arrayBuffer();
+      const text = await transcribeAudio(env, buffer);
+      if (text) transcriptions.set(msg.file_id!, text);
     }
   }
-
-  await checkCancelled(env);
-  await notify(`🤖 Running AI compiler...`);
 
   const contentBlocks = buildContentBlocks(messages, resolvedMedia, transcriptions, dateStr, noteTemplate);
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const tools: Anthropic.Tool[] = [...VAULT_TOOLS, ...(env.TAVILY_API_KEY ? [WEB_SEARCH_TOOL] : [])];
 
-  const { noteMarkdown, pendingWrites } = await runAgenticCompiler(
-    client,
-    gh,
-    env,
+  return {
+    date: dateStr,
+    messageCount: messages.length,
     systemPrompt,
-    contentBlocks as Anthropic.ContentBlockParam[],
-    notify,
-  );
+    tools,
+    initialMessages: [{ role: 'user', content: contentBlocks as Anthropic.ContentBlockParam[] }],
+  };
+}
 
+// Commits the compiled note + vault files to GitHub, updates person cards,
+// cleans up D1 messages, and sends a stats summary to the user.
+export async function finalizeCompile(
+  noteMarkdown: string,
+  pendingWrites: Map<string, string>,
+  dateStr: string,
+  env: Env,
+  notify: (msg: string) => Promise<void>,
+  stats: CompileStats,
+): Promise<void> {
   await notify(`📝 AI done. Committing to GitHub...`);
+
+  const gh = new GitHubClient(env.GH_TOKEN, env.GH_REPO);
 
   for (const [name, context] of parsePeople(noteMarkdown)) {
     await upsertPersonCard(env.DB, name, dateStr, context);
   }
 
-  // Batch-commit daily note + any vault files written by Claude in one git commit
   const allWrites = [
     { path: `${dateStr}.md`, content: noteMarkdown },
     ...Array.from(pendingWrites.entries()).map(([path, content]) => ({ path, content })),
@@ -524,13 +332,23 @@ export async function compileDailyNote(
   const newCommitSha = await gh.createCommit(`notes: ${dateStr}`, newTreeSha, commitSha);
   await gh.updateRef(env.GH_BRANCH, newCommitSha);
 
+  await compilePersonCards(env);
+  await deleteMessagesForDate(env.DB, dateStr);
+
   const extraFiles = pendingWrites.size > 0 ? ` + ${pendingWrites.size} vault file(s)` : '';
+  const elapsedSec = Math.round((Date.now() - new Date(stats.startedAt).getTime()) / 1000);
+  const elapsed = elapsedSec >= 60 ? `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s` : `${elapsedSec}s`;
+  const total = stats.inputTokens + stats.outputTokens;
+
   console.log(`Committed daily note + ${pendingWrites.size} vault file(s): ${dateStr}`);
 
-  await compilePersonCards(env);
-
-  await deleteMessagesForDate(env.DB, dateStr);
-  console.log(`Deleted messages for ${dateStr} from D1.`);
-
-  await notify(`✅ Done! Committed ${dateStr}.md${extraFiles} to GitHub.`);
+  await notify(
+    `✅ Done! Committed ${dateStr}.md${extraFiles} to GitHub.\n\n` +
+    `📊 Stats:\n` +
+    `• Time: ${elapsed}\n` +
+    `• Turns: ${stats.turns}\n` +
+    `• Input tokens: ${stats.inputTokens.toLocaleString()}\n` +
+    `• Output tokens: ${stats.outputTokens.toLocaleString()}\n` +
+    `• Total tokens: ${total.toLocaleString()}`,
+  );
 }

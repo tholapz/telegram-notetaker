@@ -1,10 +1,11 @@
-import { CompilationCancelledError, compileDailyNote } from './compiler';
-import { deleteMeta, getActiveLock, saveMessage, setMeta } from './db';
+import Anthropic from '@anthropic-ai/sdk';
+import { submitBatchTurn } from './batch';
+import { deleteCompileJob, getActiveCompileJob, saveMessage } from './db';
+import { prepareCompile } from './compiler';
 import { version } from '../package.json';
 import type { Env, TelegramUpdate } from './types';
 
 function getLocalDatetime(timezone: string): { date: string; timestamp: string } {
-  // 'sv' locale gives "YYYY-MM-DD HH:MM:SS" — ideal for ISO-like storage
   const localStr = new Date().toLocaleString('sv', { timeZone: timezone });
   const [date, time] = localStr.split(' ');
   return { date, timestamp: `${date}T${time}` };
@@ -66,13 +67,19 @@ export async function handleUpdate(update: TelegramUpdate, env: Env, ctx: Execut
 
   if (msg.text?.startsWith('/stop')) {
     const chatId = msg.from.id;
-    const running = await getActiveLock(env.DB);
-    if (!running) {
+    const activeJob = await getActiveCompileJob(env.DB);
+    if (!activeJob) {
       await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, 'No compilation is currently running.');
       return;
     }
-    await setMeta(env.DB, 'compile_cancel', '1');
-    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, '🛑 Stop signal sent. Compilation will halt at the next checkpoint.');
+    try {
+      const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+      await client.messages.batches.cancel(activeJob.batch_id);
+    } catch (e) {
+      console.warn(`Failed to cancel batch ${activeJob.batch_id}: ${e}`);
+    }
+    await deleteCompileJob(env.DB, activeJob.batch_id);
+    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, '🛑 Compilation cancelled.');
     return;
   }
 
@@ -87,33 +94,47 @@ export async function handleUpdate(update: TelegramUpdate, env: Env, ctx: Execut
       return;
     }
 
-    const running = await getActiveLock(env.DB);
-    if (running) {
+    const activeJob = await getActiveCompileJob(env.DB);
+    if (activeJob) {
       await sendMessage(
         env.TELEGRAM_BOT_TOKEN,
         chatId,
-        `⏳ Compilation already in progress (started ${running}). Use /stop to cancel.`,
+        `⏳ Compilation already in progress for ${activeJob.date} (batch: ${activeJob.batch_id}). Use /stop to cancel.`,
       );
       return;
     }
 
     const notify = (text: string) => sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, text);
-    await notify(`🔄 Starting compilation for ${targetDate}...`);
 
+    // prepareCompile (media resolution, transcription) can take a few seconds —
+    // still safe within the Telegram webhook 30s window.
     ctx.waitUntil(
       (async () => {
-        await setMeta(env.DB, 'compile_running', new Date().toISOString());
         try {
-          await compileDailyNote(targetDate, env, notify);
+          const context = await prepareCompile(targetDate, env, notify);
+          if (!context) return;
+
+          const batchId = await submitBatchTurn(
+            context.initialMessages,
+            context.systemPrompt,
+            context.tools,
+            {
+              date: targetDate,
+              chatId: String(chatId),
+              turn: 0,
+              pendingWrites: new Map(),
+              startedAt: new Date().toISOString(),
+              inputTokens: 0,
+              outputTokens: 0,
+            },
+            env,
+          );
+          await notify(
+            `🤖 AI compilation queued for ${targetDate} (${context.messageCount} messages).\n` +
+            `Batch: ${batchId}\nI'll notify you when done.`,
+          );
         } catch (e) {
-          if (e instanceof CompilationCancelledError) {
-            await notify('🛑 Compilation stopped.');
-          } else {
-            await notify(`❌ Compilation failed: ${(e as Error).message ?? e}`);
-          }
-        } finally {
-          await deleteMeta(env.DB, 'compile_running');
-          await deleteMeta(env.DB, 'compile_cancel');
+          await notify(`❌ Compilation failed: ${(e as Error).message ?? e}`);
         }
       })(),
     );
@@ -126,58 +147,33 @@ export async function handleUpdate(update: TelegramUpdate, env: Env, ctx: Execut
     const photo = msg.photo[msg.photo.length - 1];
     const r2_url = await uploadMediaToR2(env, photo.file_id, 'image/jpeg');
     await saveMessage(env.DB, {
-      date,
-      timestamp,
-      message_type: 'photo',
-      text: msg.caption ?? null,
-      file_id: photo.file_id,
-      file_mime_type: 'image/jpeg',
-      r2_url,
+      date, timestamp, message_type: 'photo', text: msg.caption ?? null,
+      file_id: photo.file_id, file_mime_type: 'image/jpeg', r2_url,
     });
   } else if (msg.voice) {
     const r2_url = await uploadMediaToR2(env, msg.voice.file_id, msg.voice.mime_type ?? null);
     await saveMessage(env.DB, {
-      date,
-      timestamp,
-      message_type: 'voice',
-      text: msg.caption ?? null,
-      file_id: msg.voice.file_id,
-      file_mime_type: msg.voice.mime_type ?? null,
-      r2_url,
+      date, timestamp, message_type: 'voice', text: msg.caption ?? null,
+      file_id: msg.voice.file_id, file_mime_type: msg.voice.mime_type ?? null, r2_url,
     });
   } else if (msg.video) {
     const r2_url = await uploadMediaToR2(env, msg.video.file_id, msg.video.mime_type ?? null);
     await saveMessage(env.DB, {
-      date,
-      timestamp,
-      message_type: 'video',
-      text: msg.caption ?? null,
-      file_id: msg.video.file_id,
-      file_mime_type: msg.video.mime_type ?? null,
-      r2_url,
+      date, timestamp, message_type: 'video', text: msg.caption ?? null,
+      file_id: msg.video.file_id, file_mime_type: msg.video.mime_type ?? null, r2_url,
     });
   } else if (msg.audio) {
     const r2_url = await uploadMediaToR2(env, msg.audio.file_id, msg.audio.mime_type ?? null);
     await saveMessage(env.DB, {
-      date,
-      timestamp,
-      message_type: 'audio',
-      text: msg.caption ?? null,
-      file_id: msg.audio.file_id,
-      file_mime_type: msg.audio.mime_type ?? null,
-      r2_url,
+      date, timestamp, message_type: 'audio', text: msg.caption ?? null,
+      file_id: msg.audio.file_id, file_mime_type: msg.audio.mime_type ?? null, r2_url,
     });
   } else if (msg.document) {
     const r2_url = await uploadMediaToR2(env, msg.document.file_id, msg.document.mime_type ?? null);
     await saveMessage(env.DB, {
-      date,
-      timestamp,
-      message_type: 'document',
-      text: msg.caption ?? null,
-      file_id: msg.document.file_id,
-      file_mime_type: msg.document.mime_type ?? null,
-      file_name: msg.document.file_name ?? null,
-      r2_url,
+      date, timestamp, message_type: 'document', text: msg.caption ?? null,
+      file_id: msg.document.file_id, file_mime_type: msg.document.mime_type ?? null,
+      file_name: msg.document.file_name ?? null, r2_url,
     });
   }
 }

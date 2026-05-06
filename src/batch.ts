@@ -1,10 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { deleteCompileJob, getActiveCompileJob, saveCompileJob } from './db';
-import { finalizeCompile, isAllowedWritePath, searchWeb, VAULT_TOOLS, WEB_SEARCH_TOOL } from './compiler';
-import { GitHubClient } from './github';
+import { finalizeCompile, isAllowedWritePath } from './compiler';
 import type { Env } from './types';
-
-const MAX_TURNS = 10;
 
 type BatchResult =
   | { type: 'succeeded'; message: Anthropic.Message }
@@ -82,8 +79,7 @@ export async function pollPendingJobs(env: Env): Promise<void> {
   await processBatchResult(job.batch_id, env);
 }
 
-// Fetches results for a completed batch, executes tool calls, and either
-// submits the next turn or finalizes the compilation.
+// Fetches results for a completed batch and finalizes the compilation in a single pass.
 async function processBatchResult(batchId: string, env: Env): Promise<void> {
   const job = await getActiveCompileJob(env.DB);
   if (!job || job.batch_id !== batchId) {
@@ -123,78 +119,21 @@ async function processBatchResult(batchId: string, env: Env): Promise<void> {
   const message = batchResult.result.message;
   const inputTokens = job.input_tokens + (message.usage?.input_tokens ?? 0);
   const outputTokens = job.output_tokens + (message.usage?.output_tokens ?? 0);
-  const turn = job.turn + 1;
 
-  const messages: Anthropic.MessageParam[] = JSON.parse(job.messages_json);
   const pendingWrites = new Map<string, string>(Object.entries(JSON.parse(job.pending_writes_json)));
-  const tools: Anthropic.Tool[] = [...VAULT_TOOLS, ...(env.TAVILY_API_KEY ? [WEB_SEARCH_TOOL] : [])];
   const textBlock = message.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
 
-  if (message.stop_reason === 'end_turn' || message.stop_reason !== 'tool_use') {
-    await deleteCompileJob(env.DB, batchId);
-    await finalizeCompile(textBlock?.text ?? '', pendingWrites, job.date, env, send, {
-      turns: turn,
-      inputTokens,
-      outputTokens,
-      startedAt: job.started_at,
-    });
-    return;
-  }
-
-  if (turn >= MAX_TURNS) {
-    await send(`❌ Compilation exceeded ${MAX_TURNS} turns without finishing.`);
-    await deleteCompileJob(env.DB, batchId);
-    return;
-  }
-
-  // Execute tool calls, then submit next batch turn
-  messages.push({ role: 'assistant', content: message.content });
-  const gh = new GitHubClient(env.GH_TOKEN, env.GH_REPO);
-  const toolResults: Anthropic.ToolResultBlockParam[] = [];
-
   for (const block of message.content) {
-    if (block.type !== 'tool_use') continue;
-    let result: string;
-    try {
-      if (block.name === 'list_vault_files') {
-        const { path } = block.input as { path: string };
-        result = JSON.stringify(await gh.listDirectory(path, env.GH_BRANCH));
-      } else if (block.name === 'read_vault_file') {
-        const { path } = block.input as { path: string };
-        result = (await gh.getFileContent(path, env.GH_BRANCH)) ?? `File not found: ${path}`;
-      } else if (block.name === 'write_vault_file') {
-        const { path, content } = block.input as { path: string; content: string };
-        if (!isAllowedWritePath(path)) {
-          result = `Error: writes to "${path}" are not allowed. People/ is managed separately.`;
-        } else {
-          pendingWrites.set(path, content);
-          result = `Queued: ${path}`;
-        }
-      } else if (block.name === 'web_search') {
-        const { query } = block.input as { query: string };
-        result = await searchWeb(query, env.TAVILY_API_KEY!);
-      } else {
-        result = `Unknown tool: ${block.name}`;
-      }
-    } catch (e) {
-      result = `Tool error: ${(e as Error).message}`;
-      console.warn(`Tool "${block.name}" failed:`, e);
-    }
-    toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
+    if (block.type !== 'tool_use' || block.name !== 'write_vault_file') continue;
+    const { path, content } = block.input as { path: string; content: string };
+    if (isAllowedWritePath(path)) pendingWrites.set(path, content);
   }
-
-  messages.push({ role: 'user', content: toolResults });
 
   await deleteCompileJob(env.DB, batchId);
-  const nextBatchId = await submitBatchTurn(messages, job.system_prompt, tools, {
-    date: job.date,
-    chatId: job.chat_id,
-    turn,
-    pendingWrites,
-    startedAt: job.started_at,
+  await finalizeCompile(textBlock?.text ?? '', pendingWrites, job.date, env, send, {
+    turns: 1,
     inputTokens,
     outputTokens,
-  }, env);
-
-  console.log(`Batch turn ${turn} submitted: ${nextBatchId} (date=${job.date})`);
+    startedAt: job.started_at,
+  });
 }

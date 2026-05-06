@@ -10,11 +10,12 @@ export async function saveMessage(
     file_id?: string | null;
     file_mime_type?: string | null;
     file_name?: string | null;
+    r2_url?: string | null;
   },
 ): Promise<void> {
   await db
     .prepare(
-      'INSERT INTO messages (date, timestamp, message_type, text, file_id, file_mime_type, file_name) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO messages (date, timestamp, message_type, text, file_id, file_mime_type, file_name, r2_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     )
     .bind(
       params.date,
@@ -24,6 +25,7 @@ export async function saveMessage(
       params.file_id ?? null,
       params.file_mime_type ?? null,
       params.file_name ?? null,
+      params.r2_url ?? null,
     )
     .run();
 }

@@ -37,17 +37,27 @@ async function resolveFileUri(token: string, fileId: string): Promise<string> {
   return `https://api.telegram.org/file/bot${token}/${data.result.file_path}`;
 }
 
-async function transcribeAudio(env: Env, uri: string): Promise<string | null> {
+type MediaContent =
+  | { kind: 'bytes'; buffer: ArrayBuffer; mimeType: string }
+  | { kind: 'url'; url: string };
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+async function transcribeAudio(env: Env, buffer: ArrayBuffer): Promise<string | null> {
   try {
-    const res = await fetch(uri);
-    if (!res.ok) return null;
-    const buffer = await res.arrayBuffer();
-    const result = await env.AI.run('@cf/openai/whisper', {
+    const result = (await env.AI.run('@cf/openai/whisper', {
       audio: Array.from(new Uint8Array(buffer)),
-    }) as { text?: string };
+    })) as { text?: string };
     return result.text?.trim() || null;
   } catch (e) {
-    console.warn(`Transcription failed for ${uri}:`, e);
+    console.warn('Transcription failed:', e);
     return null;
   }
 }
@@ -55,11 +65,13 @@ async function transcribeAudio(env: Env, uri: string): Promise<string | null> {
 type ContentBlock =
   | { type: 'text'; text: string }
   | { type: 'image'; source: { type: 'url'; url: string } }
-  | { type: 'document'; source: { type: 'url'; url: string; media_type: 'application/pdf' } };
+  | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+  | { type: 'document'; source: { type: 'url'; url: string; media_type: 'application/pdf' } }
+  | { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string } };
 
 function buildContentBlocks(
   messages: MessageRow[],
-  resolvedUris: Map<string, string>,
+  resolvedMedia: Map<string, MediaContent>,
   transcriptions: Map<string, string>,
   dateStr: string,
   noteTemplate: string,
@@ -73,27 +85,40 @@ function buildContentBlocks(
 
     if (!msg.file_id) continue;
 
-    const uri = resolvedUris.get(msg.file_id);
-    if (!uri) {
+    const media = resolvedMedia.get(msg.file_id);
+    if (!media) {
       blocks.push({ type: 'text', text: `[Media unavailable: ${msg.file_id}]` });
       continue;
     }
 
     const mime = msg.file_mime_type ?? '';
     if (msg.message_type === 'photo' || mime.startsWith('image/')) {
-      blocks.push({ type: 'image', source: { type: 'url', url: uri } });
+      if (media.kind === 'bytes') {
+        blocks.push({
+          type: 'image',
+          source: { type: 'base64', media_type: media.mimeType || 'image/jpeg', data: arrayBufferToBase64(media.buffer) },
+        });
+      } else {
+        blocks.push({ type: 'image', source: { type: 'url', url: media.url } });
+      }
     } else if (msg.message_type === 'document' && mime === 'application/pdf') {
-      blocks.push({
-        type: 'document',
-        source: { type: 'url', url: uri, media_type: 'application/pdf' },
-      });
+      if (media.kind === 'bytes') {
+        blocks.push({
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: arrayBufferToBase64(media.buffer) },
+        });
+      } else {
+        blocks.push({
+          type: 'document',
+          source: { type: 'url', url: media.url, media_type: 'application/pdf' },
+        });
+      }
     } else {
-      const transcription = msg.file_id ? transcriptions.get(msg.file_id) : undefined;
+      const transcription = transcriptions.get(msg.file_id);
+      const fallbackRef = media.kind === 'url' ? `[Audio/Video: ${media.url}]` : '[Audio/Video]';
       blocks.push({
         type: 'text',
-        text: transcription
-          ? `[Voice/Audio transcription]: ${transcription}`
-          : `[Audio/Video: ${uri}]`,
+        text: transcription ? `[Voice/Audio transcription]: ${transcription}` : fallbackRef,
       });
     }
   }
@@ -357,20 +382,50 @@ export async function compileDailyNote(
 
   const mediaMessages = messages.filter((m) => m.file_id);
   if (mediaMessages.length > 0) {
-    await notify(`📎 Resolving ${mediaMessages.length} media file(s)...`);
+    const r2Count = mediaMessages.filter((m) => m.r2_url).length;
+    const telegramCount = mediaMessages.length - r2Count;
+    await notify(
+      `📎 Resolving ${mediaMessages.length} media file(s)` +
+        (r2Count > 0 ? ` (${r2Count} from R2, ${telegramCount} from Telegram)` : '') +
+        '...',
+    );
   }
 
-  const resolvedUris = new Map<string, string>();
+  const s3Base = env.S3_API.replace(/\/$/, '');
+  const resolvedMedia = new Map<string, MediaContent>();
   const resolveFailures: string[] = [];
+
   for (const msg of messages) {
-    if (msg.file_id) {
+    if (!msg.file_id) continue;
+
+    // Prefer R2: fetch bytes directly, no public URL needed
+    if (msg.r2_url) {
       try {
-        resolvedUris.set(msg.file_id, await resolveFileUri(env.TELEGRAM_BOT_TOKEN, msg.file_id));
+        const key = msg.r2_url.startsWith(s3Base + '/')
+          ? msg.r2_url.slice(s3Base.length + 1)
+          : msg.r2_url;
+        const obj = await env.R2.get(key);
+        if (!obj) throw new Error('Object not found in R2');
+        const buffer = await obj.arrayBuffer();
+        resolvedMedia.set(msg.file_id, {
+          kind: 'bytes',
+          buffer,
+          mimeType: msg.file_mime_type ?? 'application/octet-stream',
+        });
+        continue;
       } catch (e) {
-        const errMsg = (e as Error).message;
-        console.warn(`Could not resolve file_id ${msg.file_id}: ${e}`);
-        resolveFailures.push(`${msg.message_type} (${msg.file_id.slice(0, 12)}…): ${errMsg}`);
+        console.warn(`R2 fetch failed for ${msg.r2_url}: ${e} — falling back to Telegram`);
       }
+    }
+
+    // Fallback: resolve via Telegram getFile API
+    try {
+      const url = await resolveFileUri(env.TELEGRAM_BOT_TOKEN, msg.file_id);
+      resolvedMedia.set(msg.file_id, { kind: 'url', url });
+    } catch (e) {
+      const errMsg = (e as Error).message;
+      console.warn(`Could not resolve file_id ${msg.file_id}: ${e}`);
+      resolveFailures.push(`${msg.message_type} (${msg.file_id.slice(0, 12)}…): ${errMsg}`);
     }
   }
 
@@ -384,7 +439,7 @@ export async function compileDailyNote(
     (m) =>
       m.file_id &&
       (m.message_type === 'voice' || m.message_type === 'audio') &&
-      resolvedUris.has(m.file_id),
+      resolvedMedia.has(m.file_id),
   );
 
   const transcriptions = new Map<string, string>();
@@ -395,9 +450,19 @@ export async function compileDailyNote(
   for (const msg of messages) {
     if (!msg.file_id) continue;
     if (msg.message_type !== 'voice' && msg.message_type !== 'audio') continue;
-    const uri = resolvedUris.get(msg.file_id);
-    if (!uri) continue;
-    const text = await transcribeAudio(env, uri);
+    const media = resolvedMedia.get(msg.file_id);
+    if (!media) continue;
+
+    let buffer: ArrayBuffer;
+    if (media.kind === 'bytes') {
+      buffer = media.buffer;
+    } else {
+      const res = await fetch(media.url);
+      if (!res.ok) continue;
+      buffer = await res.arrayBuffer();
+    }
+
+    const text = await transcribeAudio(env, buffer);
     if (text) {
       transcriptions.set(msg.file_id, text);
       console.log(`Transcribed ${msg.message_type} (${msg.file_id.slice(0, 8)}…): ${text.slice(0, 60)}`);
@@ -406,7 +471,7 @@ export async function compileDailyNote(
 
   await notify(`🤖 Running AI compiler...`);
 
-  const contentBlocks = buildContentBlocks(messages, resolvedUris, transcriptions, dateStr, noteTemplate);
+  const contentBlocks = buildContentBlocks(messages, resolvedMedia, transcriptions, dateStr, noteTemplate);
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
 
   const { noteMarkdown, pendingWrites } = await runAgenticCompiler(

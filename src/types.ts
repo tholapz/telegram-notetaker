@@ -1,6 +1,7 @@
 export interface Env {
   DB: D1Database;
   AI: Ai;
+  R2: R2Bucket;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_ALLOWED_USER_ID: string;
   ANTHROPIC_API_KEY: string;
@@ -9,6 +10,7 @@ export interface Env {
   GH_BRANCH: string;
   TIMEZONE: string;
   MODEL: string;
+  S3_API: string;
   TAVILY_API_KEY?: string;
 }
 
@@ -46,6 +48,7 @@ export interface MessageRow {
   file_id: string | null;
   file_mime_type: string | null;
   file_name: string | null;
+  r2_url: string | null;
 }
 
 export interface PersonCardRow {

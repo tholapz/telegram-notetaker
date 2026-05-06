@@ -6,7 +6,8 @@ CREATE TABLE IF NOT EXISTS messages (
   text TEXT,
   file_id TEXT,
   file_mime_type TEXT,
-  file_name TEXT
+  file_name TEXT,
+  r2_url TEXT
 );
 
 CREATE TABLE IF NOT EXISTS person_cards (

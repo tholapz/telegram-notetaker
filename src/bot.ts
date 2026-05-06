@@ -17,6 +17,35 @@ async function sendMessage(token: string, chatId: number, text: string): Promise
   });
 }
 
+async function uploadMediaToR2(
+  env: Env,
+  fileId: string,
+  mimeType: string | null,
+): Promise<string | null> {
+  try {
+    const fileRes = await fetch(
+      `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getFile?file_id=${fileId}`,
+    );
+    if (!fileRes.ok) throw new Error(`getFile ${fileRes.status}`);
+    const fileData = (await fileRes.json()) as { result: { file_path: string } };
+    const downloadUrl = `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${fileData.result.file_path}`;
+
+    const mediaRes = await fetch(downloadUrl);
+    if (!mediaRes.ok) throw new Error(`download ${mediaRes.status}`);
+    const buffer = await mediaRes.arrayBuffer();
+
+    const key = `telegram-media/${fileId}`;
+    await env.R2.put(key, buffer, {
+      httpMetadata: { contentType: mimeType ?? 'application/octet-stream' },
+    });
+
+    return `${env.S3_API.replace(/\/$/, '')}/${key}`;
+  } catch (e) {
+    console.warn(`R2 upload failed for ${fileId}: ${e}`);
+    return null;
+  }
+}
+
 export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<void> {
   const msg = update.message;
   if (!msg?.from) return;
@@ -60,6 +89,7 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
     await saveMessage(env.DB, { date, timestamp, message_type: 'text', text: msg.text });
   } else if (msg.photo) {
     const photo = msg.photo[msg.photo.length - 1];
+    const r2_url = await uploadMediaToR2(env, photo.file_id, 'image/jpeg');
     await saveMessage(env.DB, {
       date,
       timestamp,
@@ -67,8 +97,10 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
       text: msg.caption ?? null,
       file_id: photo.file_id,
       file_mime_type: 'image/jpeg',
+      r2_url,
     });
   } else if (msg.voice) {
+    const r2_url = await uploadMediaToR2(env, msg.voice.file_id, msg.voice.mime_type ?? null);
     await saveMessage(env.DB, {
       date,
       timestamp,
@@ -76,8 +108,10 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
       text: msg.caption ?? null,
       file_id: msg.voice.file_id,
       file_mime_type: msg.voice.mime_type ?? null,
+      r2_url,
     });
   } else if (msg.video) {
+    const r2_url = await uploadMediaToR2(env, msg.video.file_id, msg.video.mime_type ?? null);
     await saveMessage(env.DB, {
       date,
       timestamp,
@@ -85,8 +119,10 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
       text: msg.caption ?? null,
       file_id: msg.video.file_id,
       file_mime_type: msg.video.mime_type ?? null,
+      r2_url,
     });
   } else if (msg.audio) {
+    const r2_url = await uploadMediaToR2(env, msg.audio.file_id, msg.audio.mime_type ?? null);
     await saveMessage(env.DB, {
       date,
       timestamp,
@@ -94,8 +130,10 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
       text: msg.caption ?? null,
       file_id: msg.audio.file_id,
       file_mime_type: msg.audio.mime_type ?? null,
+      r2_url,
     });
   } else if (msg.document) {
+    const r2_url = await uploadMediaToR2(env, msg.document.file_id, msg.document.mime_type ?? null);
     await saveMessage(env.DB, {
       date,
       timestamp,
@@ -104,6 +142,7 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
       file_id: msg.document.file_id,
       file_mime_type: msg.document.mime_type ?? null,
       file_name: msg.document.file_name ?? null,
+      r2_url,
     });
   }
 }

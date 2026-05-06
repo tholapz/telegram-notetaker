@@ -222,12 +222,22 @@ async function searchWeb(query: string, tavilyKey: string): Promise<string> {
   return parts.join('\n\n---\n\n') || 'No results found.';
 }
 
+function stripUrlBlocks(content: Anthropic.ContentBlockParam[]): Anthropic.ContentBlockParam[] {
+  return content.map((block): Anthropic.ContentBlockParam => {
+    if (block.type === 'image' || block.type === 'document') {
+      return { type: 'text', text: '[Media unavailable: blocked by server]' };
+    }
+    return block;
+  });
+}
+
 async function runAgenticCompiler(
   client: Anthropic,
   gh: GitHubClient,
   env: Env,
   systemPrompt: string,
   initialContent: Anthropic.ContentBlockParam[],
+  notify: (msg: string) => Promise<void> = async () => {},
 ): Promise<{ noteMarkdown: string; pendingWrites: Map<string, string> }> {
   const tools: Anthropic.Tool[] = [
     ...VAULT_TOOLS,
@@ -238,13 +248,32 @@ async function runAgenticCompiler(
   const MAX_TURNS = 10;
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const response = await client.messages.create({
-      model: env.MODEL,
-      max_tokens: 8192,
-      system: systemPrompt,
-      tools,
-      messages,
-    });
+    let response: Anthropic.Message;
+    try {
+      response = await client.messages.create({
+        model: env.MODEL,
+        max_tokens: 8192,
+        system: systemPrompt,
+        tools,
+        messages,
+      });
+    } catch (e) {
+      const errMsg = (e as Error).message ?? '';
+      if (errMsg.includes('robots.txt')) {
+        console.warn(`Anthropic URL fetch blocked by robots.txt, retrying without media blocks`);
+        await notify('⚠️ Some media URLs were blocked by the server (robots.txt). Retrying without media...');
+        messages[0] = { role: 'user', content: stripUrlBlocks(initialContent) };
+        response = await client.messages.create({
+          model: env.MODEL,
+          max_tokens: 8192,
+          system: systemPrompt,
+          tools,
+          messages,
+        });
+      } else {
+        throw e;
+      }
+    }
 
     const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
 
@@ -386,6 +415,7 @@ export async function compileDailyNote(
     env,
     systemPrompt,
     contentBlocks as Anthropic.ContentBlockParam[],
+    notify,
   );
 
   await notify(`📝 AI done. Committing to GitHub...`);

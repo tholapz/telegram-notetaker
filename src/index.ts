@@ -1,5 +1,6 @@
 import { handleUpdate } from './bot';
-import { compileDailyNote } from './compiler';
+import { CompilationCancelledError, compileDailyNote } from './compiler';
+import { deleteMeta, setMeta } from './db';
 import type { Env, TelegramUpdate } from './types';
 
 function getLocalDate(timezone: string): string {
@@ -15,7 +16,7 @@ async function alertUser(env: Env, text: string): Promise<void> {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     // Telegram webhook: POST /webhook
@@ -27,7 +28,7 @@ export default {
         return new Response('Unauthorized', { status: 401 });
       }
       const update = (await request.json()) as TelegramUpdate;
-      await handleUpdate(update, env);
+      await handleUpdate(update, env, ctx);
       return new Response('OK');
     }
 
@@ -39,22 +40,29 @@ export default {
     const notify = (text: string) => alertUser(env, text);
     ctx.waitUntil(
       (async () => {
-        let lastError: unknown;
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            await compileDailyNote(dateStr, env, notify);
-            return;
-          } catch (e) {
-            lastError = e;
-            console.error(`Compilation attempt ${attempt + 1} failed: ${e}`);
-            await alertUser(
-              env,
-              `⚠️ Attempt ${attempt + 1}/3 failed: ${(e as Error).message ?? e}`,
-            );
-            if (attempt < 2) await new Promise((r) => setTimeout(r, 60_000));
+        await setMeta(env.DB, 'compile_running', new Date().toISOString());
+        try {
+          let lastError: unknown;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              await compileDailyNote(dateStr, env, notify);
+              return;
+            } catch (e) {
+              if (e instanceof CompilationCancelledError) {
+                await alertUser(env, '🛑 Daily note compilation was stopped.');
+                return;
+              }
+              lastError = e;
+              console.error(`Compilation attempt ${attempt + 1} failed: ${e}`);
+              await alertUser(env, `⚠️ Attempt ${attempt + 1}/3 failed: ${(e as Error).message ?? e}`);
+              if (attempt < 2) await new Promise((r) => setTimeout(r, 60_000));
+            }
           }
+          await alertUser(env, `❌ Daily note compilation failed after 3 attempts: ${(lastError as Error).message ?? lastError}`);
+        } finally {
+          await deleteMeta(env.DB, 'compile_running');
+          await deleteMeta(env.DB, 'compile_cancel');
         }
-        await alertUser(env, `❌ Daily note compilation failed after 3 attempts: ${(lastError as Error).message ?? lastError}`);
       })(),
     );
   },

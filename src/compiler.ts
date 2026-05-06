@@ -1,8 +1,20 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { deleteMessagesForDate, getMessagesForDate, upsertPersonCard } from './db';
+import { deleteMessagesForDate, getMeta, getMessagesForDate, upsertPersonCard } from './db';
 import { GitHubClient } from './github';
 import { compilePersonCards } from './personCards';
 import type { Env, MessageRow } from './types';
+
+export class CompilationCancelledError extends Error {
+  constructor() {
+    super('Compilation cancelled by user');
+    this.name = 'CompilationCancelledError';
+  }
+}
+
+async function checkCancelled(env: Env): Promise<void> {
+  const flag = await getMeta(env.DB, 'compile_cancel');
+  if (flag === '1') throw new CompilationCancelledError();
+}
 
 function stripFrontmatter(content: string): string {
   if (!content.startsWith('---')) return content;
@@ -273,6 +285,7 @@ async function runAgenticCompiler(
   const MAX_TURNS = 10;
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
+    await checkCancelled(env);
     let response: Anthropic.Message;
     try {
       response = await client.messages.create({
@@ -435,6 +448,8 @@ export async function compileDailyNote(
     );
   }
 
+  await checkCancelled(env);
+
   const audioMessages = messages.filter(
     (m) =>
       m.file_id &&
@@ -469,6 +484,7 @@ export async function compileDailyNote(
     }
   }
 
+  await checkCancelled(env);
   await notify(`🤖 Running AI compiler...`);
 
   const contentBlocks = buildContentBlocks(messages, resolvedMedia, transcriptions, dateStr, noteTemplate);

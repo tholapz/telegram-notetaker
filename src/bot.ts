@@ -1,5 +1,5 @@
-import { compileDailyNote } from './compiler';
-import { saveMessage } from './db';
+import { CompilationCancelledError, compileDailyNote } from './compiler';
+import { deleteMeta, getMeta, saveMessage, setMeta } from './db';
 import { version } from '../package.json';
 import type { Env, TelegramUpdate } from './types';
 
@@ -47,7 +47,7 @@ async function uploadMediaToR2(
   }
 }
 
-export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<void> {
+export async function handleUpdate(update: TelegramUpdate, env: Env, ctx: ExecutionContext): Promise<void> {
   const msg = update.message;
   if (!msg?.from) return;
 
@@ -59,8 +59,20 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
     await sendMessage(
       env.TELEGRAM_BOT_TOKEN,
       msg.from.id,
-      `telegram-notetaker v${version}\n\nCommands:\n/compile — compile today's daily note\n/compile YYYY-MM-DD — compile note for a specific date`,
+      `telegram-notetaker v${version}\n\nCommands:\n/compile — compile today's daily note\n/compile YYYY-MM-DD — compile note for a specific date\n/stop — cancel a compilation in progress`,
     );
+    return;
+  }
+
+  if (msg.text?.startsWith('/stop')) {
+    const chatId = msg.from.id;
+    const running = await getMeta(env.DB, 'compile_running');
+    if (!running) {
+      await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, 'No compilation is currently running.');
+      return;
+    }
+    await setMeta(env.DB, 'compile_cancel', '1');
+    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, '🛑 Stop signal sent. Compilation will halt at the next checkpoint.');
     return;
   }
 
@@ -75,14 +87,36 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
       return;
     }
 
+    const running = await getMeta(env.DB, 'compile_running');
+    if (running) {
+      await sendMessage(
+        env.TELEGRAM_BOT_TOKEN,
+        chatId,
+        `⏳ Compilation already in progress (started ${running}). Use /stop to cancel.`,
+      );
+      return;
+    }
+
     const notify = (text: string) => sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, text);
     await notify(`🔄 Starting compilation for ${targetDate}...`);
 
-    try {
-      await compileDailyNote(targetDate, env, notify);
-    } catch (e) {
-      await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, `❌ Compilation failed: ${(e as Error).message ?? e}`);
-    }
+    ctx.waitUntil(
+      (async () => {
+        await setMeta(env.DB, 'compile_running', new Date().toISOString());
+        try {
+          await compileDailyNote(targetDate, env, notify);
+        } catch (e) {
+          if (e instanceof CompilationCancelledError) {
+            await notify('🛑 Compilation stopped.');
+          } else {
+            await notify(`❌ Compilation failed: ${(e as Error).message ?? e}`);
+          }
+        } finally {
+          await deleteMeta(env.DB, 'compile_running');
+          await deleteMeta(env.DB, 'compile_cancel');
+        }
+      })(),
+    );
     return;
   }
 

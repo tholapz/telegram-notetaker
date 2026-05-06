@@ -1,5 +1,24 @@
 import type { MessageRow, PersonCardRow } from './types';
 
+export async function getMeta(db: D1Database, key: string): Promise<string | null> {
+  const row = await db
+    .prepare('SELECT value FROM meta WHERE key = ?')
+    .bind(key)
+    .first<{ value: string }>();
+  return row?.value ?? null;
+}
+
+export async function setMeta(db: D1Database, key: string, value: string): Promise<void> {
+  await db
+    .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
+    .bind(key, value)
+    .run();
+}
+
+export async function deleteMeta(db: D1Database, key: string): Promise<void> {
+  await db.prepare('DELETE FROM meta WHERE key = ?').bind(key).run();
+}
+
 export async function saveMessage(
   db: D1Database,
   params: {

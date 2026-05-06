@@ -19,9 +19,6 @@ GH_BRANCH = "main"
 TIMEZONE = "Asia/Bangkok"
 MODEL = "claude-sonnet-4-6"
 
-[limits]
-cpu_ms = 30000
-
 [observability]
 [observability.logs]
 enabled = true

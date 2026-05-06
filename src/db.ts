@@ -19,6 +19,21 @@ export async function deleteMeta(db: D1Database, key: string): Promise<void> {
   await db.prepare('DELETE FROM meta WHERE key = ?').bind(key).run();
 }
 
+const COMPILE_LOCK_TTL_MS = 30 * 60 * 1000; // 30 minutes — exceeds the Cloudflare waitUntil max
+
+// Returns the ISO start timestamp if a live lock exists.
+// Auto-clears and returns null if the lock is stale (worker was likely killed by the platform).
+export async function getActiveLock(db: D1Database): Promise<string | null> {
+  const value = await getMeta(db, 'compile_running');
+  if (!value) return null;
+  if (Date.now() - new Date(value).getTime() > COMPILE_LOCK_TTL_MS) {
+    await deleteMeta(db, 'compile_running');
+    await deleteMeta(db, 'compile_cancel');
+    return null;
+  }
+  return value;
+}
+
 export async function saveMessage(
   db: D1Database,
   params: {

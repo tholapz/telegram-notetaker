@@ -1,6 +1,6 @@
 import { handleUpdate } from './bot';
 import { CompilationCancelledError, compileDailyNote } from './compiler';
-import { deleteMeta, setMeta } from './db';
+import { deleteMeta, getActiveLock, setMeta } from './db';
 import type { Env, TelegramUpdate } from './types';
 
 function getLocalDate(timezone: string): string {
@@ -40,6 +40,8 @@ export default {
     const notify = (text: string) => alertUser(env, text);
     ctx.waitUntil(
       (async () => {
+        // Clear any stale lock from a previously killed invocation before acquiring a fresh one
+        await getActiveLock(env.DB);
         await setMeta(env.DB, 'compile_running', new Date().toISOString());
         try {
           let lastError: unknown;

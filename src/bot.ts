@@ -1,5 +1,5 @@
 import { CompilationCancelledError, compileDailyNote } from './compiler';
-import { deleteMeta, getMeta, saveMessage, setMeta } from './db';
+import { deleteMeta, getActiveLock, saveMessage, setMeta } from './db';
 import { version } from '../package.json';
 import type { Env, TelegramUpdate } from './types';
 
@@ -66,7 +66,7 @@ export async function handleUpdate(update: TelegramUpdate, env: Env, ctx: Execut
 
   if (msg.text?.startsWith('/stop')) {
     const chatId = msg.from.id;
-    const running = await getMeta(env.DB, 'compile_running');
+    const running = await getActiveLock(env.DB);
     if (!running) {
       await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, 'No compilation is currently running.');
       return;
@@ -87,7 +87,7 @@ export async function handleUpdate(update: TelegramUpdate, env: Env, ctx: Execut
       return;
     }
 
-    const running = await getMeta(env.DB, 'compile_running');
+    const running = await getActiveLock(env.DB);
     if (running) {
       await sendMessage(
         env.TELEGRAM_BOT_TOKEN,

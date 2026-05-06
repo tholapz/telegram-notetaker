@@ -1,5 +1,6 @@
 import { compileDailyNote } from './compiler';
 import { saveMessage } from './db';
+import { version } from '../package.json';
 import type { Env, TelegramUpdate } from './types';
 
 function getLocalDatetime(timezone: string): { date: string; timestamp: string } {
@@ -58,7 +59,7 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
     await sendMessage(
       env.TELEGRAM_BOT_TOKEN,
       msg.from.id,
-      'Bot active.\n\nCommands:\n/compile — compile today\'s daily note\n/compile YYYY-MM-DD — compile note for a specific date',
+      `telegram-notetaker v${version}\n\nCommands:\n/compile — compile today's daily note\n/compile YYYY-MM-DD — compile note for a specific date`,
     );
     return;
   }

@@ -7,5 +7,7 @@ CREATE TABLE IF NOT EXISTS messages (
   text TEXT,
   r2_key TEXT,
   file_mime_type TEXT,
-  file_name TEXT
+  file_name TEXT,
+  status TEXT NOT NULL DEFAULT 'ok',
+  forwarded_from TEXT
 );

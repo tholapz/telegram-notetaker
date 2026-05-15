@@ -1,5 +1,5 @@
-import { messageExists, saveMessage } from './db';
-import type { Env, TelegramUpdate } from './types';
+import { getStatusSummary, messageExists, saveMessage, updateMessageText } from './db';
+import type { Env, TelegramMessage, TelegramUpdate } from './types';
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 
@@ -22,6 +22,28 @@ function extFromMime(mime: string | null | undefined): string {
     'application/pdf': 'pdf',
   };
   return map[mime] ?? mime.split('/')[1] ?? 'bin';
+}
+
+function getForwardedFrom(msg: TelegramMessage): string | null {
+  if (msg.forward_from) {
+    return msg.forward_from.username
+      ? `@${msg.forward_from.username}`
+      : msg.forward_from.first_name;
+  }
+  if (msg.forward_from_chat) {
+    return msg.forward_from_chat.username
+      ? `@${msg.forward_from_chat.username}`
+      : (msg.forward_from_chat.title ?? null);
+  }
+  return msg.forward_sender_name ?? null;
+}
+
+async function sendMessage(env: Env, chatId: number, text: string): Promise<void> {
+  await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text }),
+  });
 }
 
 async function uploadToR2(
@@ -57,24 +79,70 @@ async function uploadToR2(
   });
 }
 
+async function handleCheckStatus(env: Env, chatId: number): Promise<void> {
+  const lines: string[] = ['📊 Pipeline Status\n'];
+
+  let lastMessageAt: string | null = null;
+  let failedCount = 0;
+
+  try {
+    const summary = await getStatusSummary(env.DB);
+    lastMessageAt = summary.lastMessageAt;
+    failedCount = summary.failedCount;
+    lines.push('D1: ✅ reachable');
+  } catch {
+    lines.push('D1: ❌ unreachable');
+  }
+
+  try {
+    await env.MEDIA_BUCKET.list({ limit: 1 });
+    lines.push('R2: ✅ reachable');
+  } catch {
+    lines.push('R2: ❌ unreachable');
+  }
+
+  if (lastMessageAt) {
+    const diffMs = Date.now() - new Date(lastMessageAt).getTime();
+    const h = Math.floor(diffMs / 3_600_000);
+    const m = Math.floor((diffMs % 3_600_000) / 60_000);
+    const age = h > 0 ? `${h}h ${m}m ago` : `${m}m ago`;
+    lines.push(`Last message: ${age}${h >= 24 ? ' ⚠️' : ''}`);
+  } else {
+    lines.push('Last message: none recorded');
+  }
+
+  lines.push(`Failed media: ${failedCount}${failedCount > 0 ? ' ⚠️' : ''}`);
+
+  await sendMessage(env, chatId, lines.join('\n'));
+}
+
 export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<void> {
+  if (update.edited_message) {
+    const edited = update.edited_message;
+    if (!edited.from || edited.from.id !== parseInt(env.TELEGRAM_ALLOWED_USER_ID, 10)) return;
+    await updateMessageText(env.DB, edited.message_id, edited.text ?? edited.caption ?? null);
+    return;
+  }
+
   const msg = update.message;
   if (!msg?.from) return;
 
   if (msg.from.id !== parseInt(env.TELEGRAM_ALLOWED_USER_ID, 10)) return;
 
   if (msg.text?.startsWith('/start') || msg.text?.startsWith('/help')) {
-    await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: msg.from.id, text: 'Bot active.' }),
-    });
+    await sendMessage(env, msg.from.id, 'Bot active.');
+    return;
+  }
+
+  if (msg.text?.startsWith('/check-status')) {
+    await handleCheckStatus(env, msg.from.id);
     return;
   }
 
   if (await messageExists(env.DB, msg.message_id)) return;
 
   const { date, created_at } = getLocalDatetime(env.TIMEZONE);
+  const forwarded_from = getForwardedFrom(msg);
 
   if (msg.text) {
     await saveMessage(env.DB, {
@@ -83,6 +151,7 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
       created_at,
       message_type: 'text',
       text: msg.text,
+      forwarded_from,
     });
     return;
   }
@@ -125,7 +194,25 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
   }
 
   const r2Key = `${date}/${msg.message_id}.${extFromMime(mime)}`;
-  await uploadToR2(env, fileId, fileSize, mime, r2Key);
+
+  try {
+    await uploadToR2(env, fileId, fileSize, mime, r2Key);
+  } catch (e) {
+    console.error(`R2 upload failed for message ${msg.message_id}: ${e}`);
+    await saveMessage(env.DB, {
+      message_id: msg.message_id,
+      date,
+      created_at,
+      message_type: messageType,
+      text: msg.caption ?? null,
+      file_mime_type: mime ?? null,
+      file_name: fileName ?? null,
+      forwarded_from,
+      status: 'failed',
+    });
+    await sendMessage(env, msg.from.id, `⚠️ Failed to store ${messageType} — check /check-status`);
+    return;
+  }
 
   await saveMessage(env.DB, {
     message_id: msg.message_id,
@@ -136,5 +223,7 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
     r2_key: r2Key,
     file_mime_type: mime ?? null,
     file_name: fileName ?? null,
+    forwarded_from,
+    status: 'ok',
   });
 }

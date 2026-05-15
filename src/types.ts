@@ -9,6 +9,7 @@ export interface Env {
 export interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
+  edited_message?: TelegramMessage;
 }
 
 export interface TelegramMessage {
@@ -22,6 +23,9 @@ export interface TelegramMessage {
   video?: { file_id: string; mime_type?: string; file_size?: number };
   audio?: { file_id: string; mime_type?: string; file_size?: number };
   document?: { file_id: string; mime_type?: string; file_name?: string; file_size?: number };
+  forward_from?: { id: number; first_name: string; username?: string };
+  forward_from_chat?: { id: number; title?: string; username?: string };
+  forward_sender_name?: string;
 }
 
 export interface TelegramPhotoSize {
@@ -41,4 +45,6 @@ export interface MessageRow {
   r2_key: string | null;
   file_mime_type: string | null;
   file_name: string | null;
+  status: string;
+  forwarded_from: string | null;
 }

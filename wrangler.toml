@@ -11,9 +11,6 @@ database_id = "e67c7d7c-4b4e-41a0-b450-0d9651ab0569"
 [vars]
 TIMEZONE = "Asia/Bangkok"
 
-[define]
-BUILD_TIME = "'BUILD_TIME is missing during cloudflare build'"
-
 [observability]
 [observability.logs]
 enabled = true

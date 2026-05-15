@@ -162,7 +162,9 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
   }
 
   if (msg.text?.startsWith('/version')) {
-    await sendMessage(env, msg.from.id, `Version: ${APP_VERSION}\nDeployed: ${BUILD_TIME}`);
+    const version = typeof APP_VERSION !== 'undefined' ? APP_VERSION : 'unknown';
+    const buildTime = typeof BUILD_TIME !== 'undefined' ? BUILD_TIME : 'unknown';
+    await sendMessage(env, msg.from.id, `Version: ${version}\nDeployed: ${buildTime}`);
     return;
   }
 

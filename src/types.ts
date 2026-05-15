@@ -35,7 +35,7 @@ export interface MessageRow {
   id: number;
   message_id: number;
   date: string;
-  timestamp: string;
+  created_at: string;
   message_type: string;
   text: string | null;
   r2_key: string | null;

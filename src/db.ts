@@ -13,7 +13,7 @@ export async function saveMessage(
   params: {
     message_id: number;
     date: string;
-    timestamp: string;
+    created_at: string;
     message_type: string;
     text?: string | null;
     r2_key?: string | null;
@@ -23,12 +23,12 @@ export async function saveMessage(
 ): Promise<void> {
   await db
     .prepare(
-      'INSERT INTO messages (message_id, date, timestamp, message_type, text, r2_key, file_mime_type, file_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO messages (message_id, date, created_at, message_type, text, r2_key, file_mime_type, file_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     )
     .bind(
       params.message_id,
       params.date,
-      params.timestamp,
+      params.created_at,
       params.message_type,
       params.text ?? null,
       params.r2_key ?? null,

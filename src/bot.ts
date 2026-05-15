@@ -3,10 +3,10 @@ import type { Env, TelegramUpdate } from './types';
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 
-function getLocalDatetime(timezone: string): { date: string; timestamp: string } {
+function getLocalDatetime(timezone: string): { date: string; created_at: string } {
   const localStr = new Date().toLocaleString('sv', { timeZone: timezone });
   const [date, time] = localStr.split(' ');
-  return { date, timestamp: `${date}T${time}` };
+  return { date, created_at: `${date}T${time}` };
 }
 
 function extFromMime(mime: string | null | undefined): string {
@@ -74,13 +74,13 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
 
   if (await messageExists(env.DB, msg.message_id)) return;
 
-  const { date, timestamp } = getLocalDatetime(env.TIMEZONE);
+  const { date, created_at } = getLocalDatetime(env.TIMEZONE);
 
   if (msg.text) {
     await saveMessage(env.DB, {
       message_id: msg.message_id,
       date,
-      timestamp,
+      created_at,
       message_type: 'text',
       text: msg.text,
     });
@@ -130,7 +130,7 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
   await saveMessage(env.DB, {
     message_id: msg.message_id,
     date,
-    timestamp,
+    created_at,
     message_type: messageType,
     text: msg.caption ?? null,
     r2_key: r2Key,

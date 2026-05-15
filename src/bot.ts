@@ -2,6 +2,8 @@ import { getStatusSummary, messageExists, saveMessage, updateMessageText } from 
 import type { Env, TelegramMessage, TelegramUpdate } from './types';
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
+const ANTHROPIC_API_VERSION = '2023-06-01';
+const ANTHROPIC_FILES_BETA = 'files-api-2025-04-14';
 
 function getLocalDatetime(timezone: string): { date: string; created_at: string } {
   const localStr = new Date().toLocaleString('sv', { timeZone: timezone });
@@ -46,13 +48,13 @@ async function sendMessage(env: Env, chatId: number, text: string): Promise<void
   });
 }
 
-async function uploadToR2(
+async function uploadToAnthropicFiles(
   env: Env,
   fileId: string,
   knownSize: number | undefined,
   mime: string | null | undefined,
-  r2Key: string,
-): Promise<void> {
+  fileName: string,
+): Promise<string> {
   if (knownSize !== undefined && knownSize > MAX_FILE_BYTES) {
     throw new Error(`File too large: ${knownSize} bytes`);
   }
@@ -74,9 +76,23 @@ async function uploadToR2(
   );
   if (!fileRes.ok) throw new Error(`File download failed: ${fileRes.status}`);
 
-  await env.MEDIA_BUCKET.put(r2Key, fileRes.body, {
-    httpMetadata: { contentType: mime ?? 'application/octet-stream' },
+  const buffer = await fileRes.arrayBuffer();
+  const formData = new FormData();
+  formData.append('file', new Blob([buffer], { type: mime ?? 'application/octet-stream' }), fileName);
+
+  const uploadRes = await fetch('https://api.anthropic.com/v1/files', {
+    method: 'POST',
+    headers: {
+      'x-api-key': env.ANTHROPIC_API_KEY,
+      'anthropic-version': ANTHROPIC_API_VERSION,
+      'anthropic-beta': ANTHROPIC_FILES_BETA,
+    },
+    body: formData,
   });
+  if (!uploadRes.ok) throw new Error(`Anthropic Files API failed: ${uploadRes.status}`);
+
+  const { id } = (await uploadRes.json()) as { id: string };
+  return id;
 }
 
 async function handleCheckStatus(env: Env, chatId: number): Promise<void> {
@@ -95,10 +111,17 @@ async function handleCheckStatus(env: Env, chatId: number): Promise<void> {
   }
 
   try {
-    await env.MEDIA_BUCKET.list({ limit: 1 });
-    lines.push('R2: ✅ reachable');
+    const res = await fetch('https://api.anthropic.com/v1/files?limit=1', {
+      headers: {
+        'x-api-key': env.ANTHROPIC_API_KEY,
+        'anthropic-version': ANTHROPIC_API_VERSION,
+        'anthropic-beta': ANTHROPIC_FILES_BETA,
+      },
+    });
+    if (!res.ok) throw new Error(`status ${res.status}`);
+    lines.push('Anthropic Files API: ✅ reachable');
   } catch {
-    lines.push('R2: ❌ unreachable');
+    lines.push('Anthropic Files API: ❌ unreachable');
   }
 
   if (lastMessageAt) {
@@ -202,12 +225,13 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
     return;
   }
 
-  const r2Key = `${date}/${msg.message_id}.${extFromMime(mime)}`;
+  const uploadFileName = fileName ?? `${msg.message_id}.${extFromMime(mime)}`;
 
+  let anthropicFileId: string;
   try {
-    await uploadToR2(env, fileId, fileSize, mime, r2Key);
+    anthropicFileId = await uploadToAnthropicFiles(env, fileId, fileSize, mime, uploadFileName);
   } catch (e) {
-    console.error(`R2 upload failed for message ${msg.message_id}: ${e}`);
+    console.error(`Anthropic Files upload failed for message ${msg.message_id}: ${e}`);
     await saveMessage(env.DB, {
       message_id: msg.message_id,
       date,
@@ -229,7 +253,7 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
     created_at,
     message_type: messageType,
     text: msg.caption ?? null,
-    r2_key: r2Key,
+    anthropic_file_id: anthropicFileId,
     file_mime_type: mime ?? null,
     file_name: fileName ?? null,
     forwarded_from,

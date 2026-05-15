@@ -8,10 +8,6 @@ binding = "DB"
 database_name = "telegram-notetaker"
 database_id = "e67c7d7c-4b4e-41a0-b450-0d9651ab0569"
 
-[[r2_buckets]]
-binding = "MEDIA_BUCKET"
-bucket_name = "obsidian-vault"
-
 [vars]
 TIMEZONE = "Asia/Bangkok"
 

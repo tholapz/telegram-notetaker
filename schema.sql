@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at TEXT NOT NULL,
   message_type TEXT NOT NULL,
   text TEXT,
-  r2_key TEXT,
+  anthropic_file_id TEXT,
   file_mime_type TEXT,
   file_name TEXT,
   status TEXT NOT NULL DEFAULT 'ok',

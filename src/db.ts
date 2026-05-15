@@ -16,7 +16,7 @@ export async function saveMessage(
     created_at: string;
     message_type: string;
     text?: string | null;
-    r2_key?: string | null;
+    anthropic_file_id?: string | null;
     file_mime_type?: string | null;
     file_name?: string | null;
     status?: string;
@@ -25,7 +25,7 @@ export async function saveMessage(
 ): Promise<void> {
   await db
     .prepare(
-      'INSERT INTO messages (message_id, date, created_at, message_type, text, r2_key, file_mime_type, file_name, status, forwarded_from) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO messages (message_id, date, created_at, message_type, text, anthropic_file_id, file_mime_type, file_name, status, forwarded_from) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
     .bind(
       params.message_id,
@@ -33,7 +33,7 @@ export async function saveMessage(
       params.created_at,
       params.message_type,
       params.text ?? null,
-      params.r2_key ?? null,
+      params.anthropic_file_id ?? null,
       params.file_mime_type ?? null,
       params.file_name ?? null,
       params.status ?? 'ok',

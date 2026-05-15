@@ -2,10 +2,10 @@ declare const BUILD_TIME: string;
 
 export interface Env {
   DB: D1Database;
-  MEDIA_BUCKET: R2Bucket;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_ALLOWED_USER_ID: string;
   TIMEZONE: string;
+  ANTHROPIC_API_KEY: string;
 }
 
 export interface TelegramUpdate {
@@ -44,7 +44,7 @@ export interface MessageRow {
   created_at: string;
   message_type: string;
   text: string | null;
-  r2_key: string | null;
+  anthropic_file_id: string | null;
   file_mime_type: string | null;
   file_name: string | null;
   status: string;

@@ -15,6 +15,9 @@ bucket_name = "obsidian-vault"
 [vars]
 TIMEZONE = "Asia/Bangkok"
 
+[define]
+BUILD_TIME = "'dev'"
+
 [observability]
 [observability.logs]
 enabled = true

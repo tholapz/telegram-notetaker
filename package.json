@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "wrangler deploy --define \"BUILD_TIME:'$(date -u +%Y-%m-%dT%H:%M:%SZ)'\"",
     "db:init": "wrangler d1 execute telegram-notetaker --file=schema.sql"
   },
   "dependencies": {

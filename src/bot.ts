@@ -130,11 +130,20 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
   if (msg.from.id !== parseInt(env.TELEGRAM_ALLOWED_USER_ID, 10)) return;
 
   if (msg.text?.startsWith('/start') || msg.text?.startsWith('/help')) {
-    await sendMessage(env, msg.from.id, 'Bot active.');
+    await sendMessage(
+      env,
+      msg.from.id,
+      `/help — show this message\n/status — check D1, R2, and last message health\n/version — show bot version and deploy time`,
+    );
     return;
   }
 
-  if (msg.text?.startsWith('/check-status')) {
+  if (msg.text?.startsWith('/version')) {
+    await sendMessage(env, msg.from.id, `Version: 0.1.0\nDeployed: ${BUILD_TIME}`);
+    return;
+  }
+
+  if (msg.text?.startsWith('/status')) {
     await handleCheckStatus(env, msg.from.id);
     return;
   }
@@ -210,7 +219,7 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
       forwarded_from,
       status: 'failed',
     });
-    await sendMessage(env, msg.from.id, `⚠️ Failed to store ${messageType} — check /check-status`);
+    await sendMessage(env, msg.from.id, `⚠️ Failed to store ${messageType} — check /status`);
     return;
   }
 

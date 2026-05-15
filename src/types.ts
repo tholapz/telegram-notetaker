@@ -1,3 +1,5 @@
+declare const BUILD_TIME: string;
+
 export interface Env {
   DB: D1Database;
   MEDIA_BUCKET: R2Bucket;

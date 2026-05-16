@@ -1,3 +1,10 @@
+## [1.1.2](https://github.com/tholapz/telegram-notetaker/compare/v1.1.1...v1.1.2) (2026-05-16)
+
+
+### Bug Fixes
+
+* correct template literal missing $ in GH_REPO URL interpolation ([440836e](https://github.com/tholapz/telegram-notetaker/commit/440836e334564d927c6eb57434d7ef75deb679be))
+
 ## [1.1.1](https://github.com/tholapz/telegram-notetaker/compare/v1.1.0...v1.1.1) (2026-05-16)
 
 

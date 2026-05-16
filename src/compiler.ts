@@ -86,7 +86,7 @@ export async function runCompiler(env: Env, date?: string): Promise<string> {
             type: 'text',
             text:
               `Generate the daily briefing for ${targetDate}.\n\n` +
-              `Data in /workspace/today/:\n` +
+              `Data in /mnt/session/uploads/workspace/today/:\n` +
               `  messages.json — all messages and notes\n` +
               `  media/        — photos, documents, and files\n\n` +
               `Read all files, produce the structured Obsidian daily note, ` +

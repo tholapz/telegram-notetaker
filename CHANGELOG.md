@@ -1,3 +1,10 @@
+## [1.1.3](https://github.com/tholapz/telegram-notetaker/compare/v1.1.2...v1.1.3) (2026-05-16)
+
+
+### Bug Fixes
+
+* agent push to github failed ([78a1636](https://github.com/tholapz/telegram-notetaker/commit/78a16367e8f644f515d6044f6324bd7be9f7e595))
+
 ## [1.1.2](https://github.com/tholapz/telegram-notetaker/compare/v1.1.1...v1.1.2) (2026-05-16)
 
 

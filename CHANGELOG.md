@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/tholapz/telegram-notetaker/compare/v1.1.0...v1.1.1) (2026-05-16)
+
+
+### Bug Fixes
+
+* invalid github_repository url ([0acfd61](https://github.com/tholapz/telegram-notetaker/commit/0acfd6159fc1000973712d16d90881c9bef1fbaf))
+
 # [1.1.0](https://github.com/tholapz/telegram-notetaker/compare/v1.0.0...v1.1.0) (2026-05-16)
 
 

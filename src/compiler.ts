@@ -64,7 +64,7 @@ export async function runCompiler(env: Env, date?: string): Promise<string> {
 
   resources.push({
     type: 'github_repository',
-    url: `https://github.com/{env.GH_REPO}`,
+    url: `https://github.com/${env.GH_REPO}`,
     mount_path: '/workspace/obsidian-vault',
     authorization_token: env.GH_TOKEN,
   });

@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/tholapz/telegram-notetaker/compare/v1.0.0...v1.1.0) (2026-05-16)
+
+
+### Features
+
+* add /compile command and scheduled compiler via Claude managed agent ([c5973fc](https://github.com/tholapz/telegram-notetaker/commit/c5973fc27c9ff6b2c42e18ac3260ee31992e65ef))
+
 # 1.0.0 (2026-05-16)
 
 

@@ -1,9 +1,15 @@
 export interface Env {
+  GH_TOKEN: string;
   DB: D1Database;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_ALLOWED_USER_ID: string;
   TIMEZONE: string;
   ANTHROPIC_API_KEY: string;
+  AGENT_ID: string;
+  AGENT_VERSION: string;
+  ENV_ID: string;
+  VAULT_ID: string;
+  GH_REPO: string;
 }
 
 export interface TelegramUpdate {

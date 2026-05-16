@@ -8,7 +8,7 @@
     "db:init": "wrangler d1 execute telegram-notetaker --file=schema.sql"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.40.0"
+    "@anthropic-ai/sdk": "^0.96.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241022.0",

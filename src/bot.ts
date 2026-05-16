@@ -1,4 +1,5 @@
 import { getStatusSummary, messageExists, saveMessage, updateMessageText } from './db';
+import { runCompiler } from './compiler';
 import type { Env, TelegramMessage, TelegramUpdate } from './types';
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -156,7 +157,7 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
     await sendMessage(
       env,
       msg.from.id,
-      `/help — show this message\n/status — check storage health\n/version — show bot version and deploy time`,
+      `/help — show this message\n/status — check storage health\n/version — show bot version and deploy time\n/compile — trigger note compilation for today`,
     );
     return;
   }
@@ -170,6 +171,18 @@ export async function handleUpdate(update: TelegramUpdate, env: Env): Promise<vo
 
   if (msg.text?.startsWith('/status')) {
     await handleCheckStatus(env, msg.from.id);
+    return;
+  }
+
+  if (msg.text?.startsWith('/compile')) {
+    const { date } = getLocalDatetime(env.TIMEZONE);
+    try {
+      const sessionId = await runCompiler(env, date);
+      await sendMessage(env, msg.from.id, `Compiling ${date}...\nSession: ${sessionId}`);
+    } catch (e) {
+      console.error(`/compile failed: ${e}`);
+      await sendMessage(env, msg.from.id, `⚠️ Compilation failed — check logs`);
+    }
     return;
   }
 

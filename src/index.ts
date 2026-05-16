@@ -1,4 +1,5 @@
 import { handleUpdate } from './bot';
+import { runCompiler } from './compiler';
 import type { Env, TelegramUpdate } from './types';
 
 export default {
@@ -23,5 +24,8 @@ export default {
     }
 
     return new Response('Not Found', { status: 404 });
+  },
+  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runCompiler(env).catch((err) => console.error("runMimir failed:", err)));
   },
 };

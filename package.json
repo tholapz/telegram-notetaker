@@ -1,6 +1,6 @@
 {
   "name": "telegram-notetaker",
-  "version": "1.1.3",
+  "version": "1.1.4",
   "private": true,
   "scripts": {
     "dev": "wrangler dev",

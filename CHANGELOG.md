@@ -1,3 +1,10 @@
+## [1.1.4](https://github.com/tholapz/telegram-notetaker/compare/v1.1.3...v1.1.4) (2026-05-16)
+
+
+### Bug Fixes
+
+* data path for compiler ([f6530cc](https://github.com/tholapz/telegram-notetaker/commit/f6530ccec77d6c99757573a8022eff76a511aec8))
+
 ## [1.1.3](https://github.com/tholapz/telegram-notetaker/compare/v1.1.2...v1.1.3) (2026-05-16)
 
 

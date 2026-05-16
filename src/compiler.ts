@@ -91,7 +91,7 @@ export async function runCompiler(env: Env, date?: string): Promise<string> {
               `  media/        — photos, documents, and files\n\n` +
               `Read all files, produce the structured Obsidian daily note, ` +
               `save it to /workspace/obsidian-vault/daily/${targetDate}.md, ` +
-              `and push to the main branch.`,
+              `and push to the main branch. To push files to GitHub, always use the github MCP tool (create_or_update_file). Do not use 'git push' — the local proxy is unreliable.`,
           },
         ],
       },

@@ -1,3 +1,16 @@
+# [1.2.0](https://github.com/tholapz/telegram-notetaker/compare/v1.1.4...v1.2.0) (2026-05-18)
+
+
+### Bug Fixes
+
+* compiler queries yesterday's date for morning cron ([77f5c0a](https://github.com/tholapz/telegram-notetaker/commit/77f5c0a61749cf192af209396246a81085d82dec))
+* use tsx iife to run update_agent script ([4b392c9](https://github.com/tholapz/telegram-notetaker/commit/4b392c97396fa0b161e9620d8b5d6eb0b61fc95e))
+
+
+### Features
+
+* add update_agent.ts and ignore session_logs ([ca940e3](https://github.com/tholapz/telegram-notetaker/commit/ca940e39ad93ae4b58f7be1dfc9da4db1db9125d))
+
 ## [1.1.4](https://github.com/tholapz/telegram-notetaker/compare/v1.1.3...v1.1.4) (2026-05-16)
 
 

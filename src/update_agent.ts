@@ -1,5 +1,5 @@
 // Update existing agent — increments version, keeps same AGENT_ID
-// npx tsx --env-file .env src/update_agent.ts
+// npm run agent
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -33,41 +33,43 @@ if (!agentId || !agentVersion) {
   throw new Error('AGENT_ID and AGENT_VERSION must be set in .env');
 }
 
-const agent = await client.beta.agents.update(agentId, {
-  version: parseInt(agentVersion, 10),
-  name: 'Mimir',
-  model: 'claude-sonnet-4-6',
-  system: SYSTEM_PROMPT,
-  mcp_servers: [
-    {
-      type: 'url',
-      name: 'github',
-      url: 'https://api.githubcopilot.com/mcp/v1',
-    },
-  ],
-  tools: [
-    {
-      type: 'agent_toolset_20260401',
-      default_config: {
-        enabled: true,
-        permission_policy: { type: 'always_allow' },
+(async () => {
+  const agent = await client.beta.agents.update(agentId, {
+    version: parseInt(agentVersion, 10),
+    name: 'Mimir',
+    model: 'claude-sonnet-4-6',
+    system: SYSTEM_PROMPT,
+    mcp_servers: [
+      {
+        type: 'url',
+        name: 'github',
+        url: 'https://api.githubcopilot.com/mcp/v1',
       },
-    },
-    {
-      type: 'mcp_toolset',
-      mcp_server_name: 'github',
-      default_config: {
-        enabled: true,
-        permission_policy: { type: 'always_allow' },
+    ],
+    tools: [
+      {
+        type: 'agent_toolset_20260401',
+        default_config: {
+          enabled: true,
+          permission_policy: { type: 'always_allow' },
+        },
       },
-    },
-  ],
-  skills: [
-    { type: 'anthropic', skill_id: 'xlsx' },
-    { type: 'anthropic', skill_id: 'pdf' },
-  ],
-});
+      {
+        type: 'mcp_toolset',
+        mcp_server_name: 'github',
+        default_config: {
+          enabled: true,
+          permission_policy: { type: 'always_allow' },
+        },
+      },
+    ],
+    skills: [
+      { type: 'anthropic', skill_id: 'xlsx' },
+      { type: 'anthropic', skill_id: 'pdf' },
+    ],
+  });
 
-console.log(`AGENT_ID=${agent.id}`);
-console.log(`AGENT_VERSION=${agent.version}`);
-console.log('Update .env and wrangler.toml [vars] with the new AGENT_VERSION.');
+  console.log(`AGENT_ID=${agent.id}`);
+  console.log(`AGENT_VERSION=${agent.version}`);
+  console.log('Update .env and wrangler.toml [vars] with the new AGENT_VERSION.');
+})();

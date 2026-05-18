@@ -6,7 +6,8 @@ import type {
 import type { Env, MessageRow } from './types';
 
 function getLocalDate(timezone: string): string {
-  return new Date().toLocaleString('sv', { timeZone: timezone }).split(' ')[0];
+  const d = new Date(Date.now() - 86_400_000);
+  return d.toLocaleString('sv', { timeZone: timezone }).split(' ')[0];
 }
 
 function mountFilename(row: MessageRow): string {
@@ -86,7 +87,7 @@ export async function runCompiler(env: Env, date?: string): Promise<string> {
             type: 'text',
             text:
               `Generate the daily briefing for ${targetDate}.\n\n` +
-              `Data in /mnt/session/uploads/workspace/today/:\n` +
+              `Data in /mnt/session/uploads/workspace/today/ (yesterday's captures):\n` +
               `  messages.json — all messages and notes\n` +
               `  media/        — photos, documents, and files\n\n` +
               `Read all files, produce the structured Obsidian daily note, ` +

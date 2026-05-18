@@ -10,6 +10,9 @@ npm-debug.log*
 .env
 !.env.example
 
+# Session logs (runtime artifacts, daily notes live in obsidian-vault)
+session_logs/
+
 # OS / editors
 .DS_Store
 .idea/
